@@ -7,11 +7,18 @@ import {
   type ReactNode,
 } from "react";
 import type { CommittedEvent } from "@charter/schema";
-import { api, type Bootstrap, type ChannelInfo } from "./api.js";
+import {
+  api,
+  type Bootstrap,
+  type ChannelInfo,
+  type RosterEntry,
+  type TaskInfo,
+} from "./api.js";
 import { connectEvents, type ConnectionStatus } from "./sse.js";
 
 export type View =
   | { kind: "channel"; channelId: string }
+  | { kind: "board"; taskId?: string }
   | { kind: "log" }
   | { kind: "gallery" };
 
@@ -37,6 +44,11 @@ interface State {
   lastSeq: number;
   /** runId → live agent run state (from agent.run_* events) */
   runs: Record<string, AgentRunState>;
+  roster: RosterEntry[];
+  tasks: TaskInfo[];
+  tasksLoaded: boolean;
+  /** taskId → its stream events (detail panel) */
+  taskTimelines: Record<string, CommittedEvent[]>;
 }
 
 export interface AgentRunState {
@@ -58,7 +70,9 @@ type Action =
   | { t: "event"; event: CommittedEvent }
   | { t: "pending_add"; message: PendingMessage }
   | { t: "pending_resolve"; tempId: string }
-  | { t: "pending_failed"; tempId: string };
+  | { t: "pending_failed"; tempId: string }
+  | { t: "tasks"; tasks: TaskInfo[] }
+  | { t: "task_timeline"; taskId: string; events: CommittedEvent[] };
 
 function channelOf(stream: string): string | null {
   return stream.startsWith("channel:") ? stream.slice(8) : null;
@@ -81,7 +95,21 @@ function reducer(state: State, action: Action): State {
         phase: "ready",
         company: action.data.company,
         channels: action.data.channels,
+        roster: action.data.roster,
         lastSeq: action.data.lastSeq,
+      };
+    case "tasks":
+      return { ...state, tasks: action.tasks, tasksLoaded: true };
+    case "task_timeline":
+      return {
+        ...state,
+        taskTimelines: {
+          ...state.taskTimelines,
+          [action.taskId]: mergeEvents(
+            state.taskTimelines[action.taskId] ?? [],
+            action.events,
+          ),
+        },
       };
     case "bootstrap_failed":
       return { ...state, phase: "error" };
@@ -177,6 +205,18 @@ function reducer(state: State, action: Action): State {
           ]),
         };
       }
+      if (
+        action.event.stream.startsWith("task:") &&
+        action.event.visibility === "company"
+      ) {
+        const taskId = action.event.stream.slice(5);
+        next.taskTimelines = {
+          ...next.taskTimelines,
+          [taskId]: mergeEvents(state.taskTimelines[taskId] ?? [], [
+            action.event,
+          ]),
+        };
+      }
       return next;
     }
     case "pending_add":
@@ -200,6 +240,10 @@ function initialView(): View {
   const path = window.location.pathname;
   if (path === "/log") return { kind: "log" };
   if (path === "/dev/gallery") return { kind: "gallery" };
+  if (path === "/board") return { kind: "board" };
+  if (path.startsWith("/board/")) {
+    return { kind: "board", taskId: path.slice(7) };
+  }
   if (path.startsWith("/c/")) {
     return { kind: "channel", channelId: path.slice(3) };
   }
@@ -217,6 +261,10 @@ const initial: State = {
   pending: [],
   lastSeq: 0,
   runs: {},
+  roster: [],
+  tasks: [],
+  tasksLoaded: false,
+  taskTimelines: {},
 };
 
 export interface Store {
@@ -225,6 +273,25 @@ export interface Store {
   openChannel: (channelId: string) => void;
   sendMessage: (channelId: string, body: string) => Promise<void>;
   ensureTimeline: (channelId: string) => void;
+  ensureTasks: () => void;
+  refreshTasks: () => void;
+  ensureTaskTimeline: (taskId: string) => void;
+  createTask: (input: {
+    title: string;
+    body?: string;
+    assignee_id?: string;
+    assignee_kind?: "human" | "agent";
+    origin_event_id?: string;
+    origin_channel_id?: string;
+  }) => Promise<void>;
+  patchTask: (
+    taskId: string,
+    patch: {
+      status?: TaskInfo["status"];
+      assignee_id?: string;
+      assignee_kind?: "human" | "agent";
+    },
+  ) => Promise<void>;
 }
 
 const StoreContext = createContext<Store | null>(null);
@@ -243,7 +310,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         disconnect = connectEvents({
           // Replay from 0 on first connect: the whole record is the app state.
           after: 0,
-          onEvent: (event) => dispatch({ t: "event", event }),
+          onEvent: (event) => {
+            dispatch({ t: "event", event });
+            // Task projections carry server-derived fields (task_num) —
+            // refetch the list when task state changes.
+            if (event.type.startsWith("task.")) {
+              void api
+                .tasks()
+                .then(({ tasks }) => dispatch({ t: "tasks", tasks }))
+                .catch(() => {});
+            }
+          },
           onStatus: (status) => dispatch({ t: "connection", status }),
         });
       })
@@ -259,9 +336,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const path =
         view.kind === "channel"
           ? `/c/${view.channelId}`
-          : view.kind === "log"
-            ? "/log"
-            : "/dev/gallery";
+          : view.kind === "board"
+            ? view.taskId !== undefined
+              ? `/board/${view.taskId}`
+              : "/board"
+            : view.kind === "log"
+              ? "/log"
+              : "/dev/gallery";
       window.history.pushState(null, "", path);
       dispatch({ t: "view", view });
     };
@@ -274,6 +355,28 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         void api.timeline(channelId).then(({ events }) => {
           dispatch({ t: "timeline", channelId, events });
         });
+      },
+      ensureTasks: () => {
+        if (state.tasksLoaded) return;
+        void api.tasks().then(({ tasks }) => dispatch({ t: "tasks", tasks }));
+      },
+      refreshTasks: () => {
+        void api.tasks().then(({ tasks }) => dispatch({ t: "tasks", tasks }));
+      },
+      ensureTaskTimeline: (taskId) => {
+        void api.taskTimeline(taskId).then(({ events }) => {
+          dispatch({ t: "task_timeline", taskId, events });
+        });
+      },
+      createTask: async (input) => {
+        await api.createTask(input);
+        const { tasks } = await api.tasks();
+        dispatch({ t: "tasks", tasks });
+      },
+      patchTask: async (taskId, patch) => {
+        await api.patchTask(taskId, patch);
+        const { tasks } = await api.tasks();
+        dispatch({ t: "tasks", tasks });
       },
       sendMessage: async (channelId, body) => {
         const tempId = `tmp_${Date.now()}_${Math.random().toString(36).slice(2)}`;

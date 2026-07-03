@@ -1,13 +1,15 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Hash } from "lucide-react";
 import type { CommittedEvent } from "@charter/schema";
 import { useStore } from "../lib/store.js";
+import { NewTaskDialog } from "./BoardView.js";
 import { Composer } from "./Composer.js";
 import { DayDivider, EventRow, PendingRow, WorkingRow } from "./EventRow.js";
 
 export function ChannelView({ channelId }: { channelId: string }) {
   const { state, ensureTimeline } = useStore();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [promoting, setPromoting] = useState<CommittedEvent | null>(null);
   const channel = state.channels.find((c) => c.channel_id === channelId);
   const events = state.timelines[channelId] ?? [];
   const pending = state.pending.filter((p) => p.channelId === channelId);
@@ -50,7 +52,7 @@ export function ChannelView({ channelId }: { channelId: string }) {
           <section key={group.date}>
             <DayDivider date={group.date} />
             {group.events.map((event) => (
-              <EventRow key={event.id} event={event} />
+              <EventRow key={event.id} event={event} onPromote={setPromoting} />
             ))}
           </section>
         ))}
@@ -80,6 +82,18 @@ export function ChannelView({ channelId }: { channelId: string }) {
       </div>
 
       <Composer channelId={channelId} />
+      {promoting && (
+        <NewTaskDialog
+          onClose={() => setPromoting(null)}
+          initial={{
+            title: (promoting.payload as { body?: string; note?: string }).body
+              ?.split("\n")[0]
+              ?.slice(0, 120) ?? (promoting.payload as { note?: string }).note?.split("\n")[0]?.slice(0, 120) ?? "",
+            origin_event_id: promoting.id,
+            origin_channel_id: channelId,
+          }}
+        />
+      )}
     </>
   );
 }

@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useStore } from "../lib/store.js";
+import { BoardView } from "./BoardView.js";
 import { ChannelView } from "./ChannelView.js";
 import { LogView } from "./LogView.js";
 import { Palette } from "./Palette.js";
@@ -19,6 +20,7 @@ export function AppShell() {
         {state.view.kind === "channel" && (
           <ChannelView channelId={state.view.channelId} />
         )}
+        {state.view.kind === "board" && <BoardView taskId={state.view.taskId} />}
         {state.view.kind === "log" && <LogView />}
       </main>
       <Palette />

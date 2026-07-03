@@ -20,6 +20,11 @@ export interface AgentJob {
   cwd: string;
   sessionId: string;
   resume: boolean;
+  /** Tool allowlist for the run (Claude Code permission-rule syntax).
+   *  Omitted = no tools (pure Q&A). dontAsk mode denies everything else. */
+  allowedTools?: string[];
+  /** Override the agent's wall clock for long coding runs. */
+  maxWallMs?: number;
 }
 
 export type RuntimeUsage = {

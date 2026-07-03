@@ -3,7 +3,7 @@ import type { Projector } from "./types.js";
 
 export const agentRunsProjector: Projector = {
   name: "agent_runs",
-  version: 1,
+  version: 2,
   types: [
     "agent.run_queued",
     "agent.run_started",
@@ -18,8 +18,8 @@ export const agentRunsProjector: Projector = {
         db.prepare(
           `INSERT INTO agent_runs
              (run_id, company_id, agent_id, channel_id, trigger_event_id,
-              priority, status, queued_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?)
+              priority, status, kind, task_id, queued_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?)
            ON CONFLICT (run_id) DO NOTHING`,
         ).run(
           p.run_id,
@@ -28,6 +28,8 @@ export const agentRunsProjector: Projector = {
           p.channel_id,
           p.trigger_event_id,
           p.priority,
+          p.kind ?? "chat",
+          p.task_id ?? null,
           event.created_at,
           event.created_at,
         );

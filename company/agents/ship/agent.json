@@ -1,0 +1,8 @@
+{
+  "name": "Ship",
+  "role": "Engineering",
+  "model": "sonnet",
+  "max_turns": 60,
+  "daily_runs": 12,
+  "max_wall_ms": 1200000
+}

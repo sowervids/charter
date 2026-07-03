@@ -12,5 +12,5 @@ export {
   NewEvent,
 } from "./events.js";
 export type { EventType, EventPayload, CommittedEvent } from "./events.js";
-export { newEventId, newRunId } from "./ids.js";
+export { newEventId, newRunId, newTaskId } from "./ids.js";
 export { canonicalJson } from "./canonical.js";

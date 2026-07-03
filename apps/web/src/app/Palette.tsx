@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Command } from "cmdk";
-import { Hash, ScrollText } from "lucide-react";
+import { Hash, Kanban, ScrollText } from "lucide-react";
 import { useStore } from "../lib/store.js";
 
 /**
@@ -65,6 +65,10 @@ export function Palette() {
           heading="Company"
           className="[&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:py-1 [&_[cmdk-group-heading]]:font-mono [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-[0.08em] [&_[cmdk-group-heading]]:text-text-3"
         >
+          <Item onSelect={() => run(() => navigate({ kind: "board" }))}>
+            <Kanban size={14} strokeWidth={1.5} className="text-text-3" />
+            Board
+          </Item>
           <Item onSelect={() => run(() => navigate({ kind: "log" }))}>
             <ScrollText size={14} strokeWidth={1.5} className="text-text-3" />
             Event log

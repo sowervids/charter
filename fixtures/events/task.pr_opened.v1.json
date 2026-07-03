@@ -1,0 +1,1 @@
+{ "type": "task.pr_opened", "payload": { "task_id": "tsk_01", "pr_number": 7, "pr_url": "https://github.com/sowervids/charter/pull/7", "branch": "agent/ship/task-7" } }

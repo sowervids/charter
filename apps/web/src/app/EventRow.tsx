@@ -8,11 +8,17 @@ import type { CommittedEvent } from "@charter/schema";
  * Provenance (UI rule 8): agent-authored events get the 2px rail + mono
  * small-caps attribution; humans render plain.
  */
-export function EventRow({ event }: { event: CommittedEvent }) {
+export function EventRow({
+  event,
+  onPromote,
+}: {
+  event: CommittedEvent;
+  onPromote?: (event: CommittedEvent) => void;
+}) {
   switch (event.type) {
     case "message.posted":
       return (
-        <Row event={event}>
+        <Row event={event} onPromote={onPromote}>
           <Body text={(event.payload as { body: string }).body} />
         </Row>
       );
@@ -34,6 +40,43 @@ export function EventRow({ event }: { event: CommittedEvent }) {
             </div>
           )}
         </Row>
+      );
+    }
+    case "task.created": {
+      const payload = event.payload as { title: string };
+      return (
+        <SystemLine event={event}>
+          task created: {payload.title} · by {event.actor.id}
+        </SystemLine>
+      );
+    }
+    case "task.status_changed": {
+      const payload = event.payload as { status: string };
+      return (
+        <SystemLine event={event}>
+          status → {payload.status}
+        </SystemLine>
+      );
+    }
+    case "task.assigned": {
+      const payload = event.payload as { assignee_id: string };
+      return (
+        <SystemLine event={event}>assigned to @{payload.assignee_id}</SystemLine>
+      );
+    }
+    case "task.pr_opened": {
+      const payload = event.payload as { pr_url: string; pr_number: number };
+      return (
+        <SystemLine event={event}>
+          <a
+            href={payload.pr_url}
+            target="_blank"
+            rel="noreferrer"
+            className="text-info hover:underline"
+          >
+            PR #{payload.pr_number} opened
+          </a>
+        </SystemLine>
       );
     }
     case "channel.created": {
@@ -64,10 +107,12 @@ export function EventRow({ event }: { event: CommittedEvent }) {
 function Row({
   event,
   icon,
+  onPromote,
   children,
 }: {
   event: CommittedEvent;
   icon?: React.ReactNode;
+  onPromote?: (event: CommittedEvent) => void;
   children: React.ReactNode;
 }) {
   const isAgent = event.actor.kind === "agent";
@@ -94,6 +139,15 @@ function Row({
         >
           {event.created_at.slice(11, 16)}
         </time>
+        {onPromote && (
+          <button
+            type="button"
+            onClick={() => onPromote(event)}
+            className="ml-auto rounded-sm border border-line-1 px-1.5 font-mono text-[10px] text-text-3 opacity-0 transition-opacity duration-(--motion-fast) hover:border-line-2 hover:text-text-1 group-hover:opacity-100"
+          >
+            → task
+          </button>
+        )}
       </div>
       <div className="text-[14px] leading-[21px] text-text-1">{children}</div>
     </div>

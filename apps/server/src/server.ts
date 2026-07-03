@@ -1,5 +1,9 @@
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
-import { channelStream, type CommittedEvent } from "@charter/schema";
+import {
+  channelStream,
+  newTaskId,
+  type CommittedEvent,
+} from "@charter/schema";
 import type { ServerContext } from "./env.js";
 
 const SSE_HEARTBEAT_MS = 25_000;
@@ -22,7 +26,21 @@ function bearerOf(request: FastifyRequest): string | null {
 
 const ALLOWED_HOSTNAMES = new Set(["127.0.0.1", "localhost"]);
 
-export function buildServer(ctx: ServerContext): FastifyInstance {
+export interface RosterEntry {
+  id: string;
+  name: string;
+  role: string;
+  kind: "human" | "agent";
+}
+
+export function buildServer(
+  ctx: ServerContext,
+  options: { roster?: RosterEntry[] } = {},
+): FastifyInstance {
+  const roster: RosterEntry[] = [
+    { id: "founder", name: "Founder", role: "Founder", kind: "human" },
+    ...(options.roster ?? []),
+  ];
   const app = Fastify({ logger: false });
 
   // Host-header check: defeats DNS-rebinding access to the loopback API.
@@ -64,7 +82,12 @@ export function buildServer(ctx: ServerContext): FastifyInstance {
           WHERE company_id = ? ORDER BY name`,
       )
       .all(ctx.company.id) as ChannelRow[];
-    return { company: ctx.company, channels, lastSeq: ctx.log.lastSeq() };
+    return {
+      company: ctx.company,
+      channels,
+      roster,
+      lastSeq: ctx.log.lastSeq(),
+    };
   });
 
   app.get("/api/channels/:id/timeline", (request) => {
@@ -118,6 +141,132 @@ export function buildServer(ctx: ServerContext): FastifyInstance {
       },
     });
     return { event };
+  });
+
+  app.get("/api/tasks", () => {
+    const tasks = ctx.db
+      .prepare(
+        `SELECT task_id, task_num, title, body, status, assignee_id,
+                assignee_kind, pr_number, pr_url, branch, created_at, updated_at
+           FROM tasks WHERE company_id = ? ORDER BY task_num DESC`,
+      )
+      .all(ctx.company.id);
+    return { tasks };
+  });
+
+  app.post("/api/tasks", (request, reply) => {
+    const body = request.body as {
+      title?: unknown;
+      body?: unknown;
+      assignee_id?: unknown;
+      assignee_kind?: unknown;
+      origin_event_id?: unknown;
+      origin_channel_id?: unknown;
+    };
+    if (typeof body?.title !== "string" || body.title.trim().length === 0) {
+      return reply.code(400).send({ error: "title required" });
+    }
+    const taskId = newTaskId();
+    const event = ctx.log.append({
+      company_id: ctx.company.id,
+      stream: `task:${taskId}`,
+      type: "task.created",
+      actor: { kind: "human", id: "founder" },
+      payload: {
+        task_id: taskId,
+        title: body.title.trim(),
+        ...(typeof body.body === "string" && body.body.trim().length > 0
+          ? { body: body.body }
+          : {}),
+        ...(typeof body.assignee_id === "string" &&
+        (body.assignee_kind === "human" || body.assignee_kind === "agent")
+          ? {
+              assignee_id: body.assignee_id,
+              assignee_kind: body.assignee_kind,
+            }
+          : {}),
+        ...(typeof body.origin_event_id === "string"
+          ? { origin_event_id: body.origin_event_id }
+          : {}),
+      },
+      ...(typeof body.origin_event_id === "string"
+        ? { refs: [{ rel: "origin", id: body.origin_event_id }] }
+        : {}),
+    });
+    const row = ctx.db
+      .prepare("SELECT task_num FROM tasks WHERE task_id = ?")
+      .get(taskId) as { task_num: number };
+    if (typeof body.origin_channel_id === "string") {
+      ctx.log.append({
+        company_id: ctx.company.id,
+        stream: channelStream(body.origin_channel_id),
+        type: "message.posted",
+        actor: { kind: "system", id: "charterd" },
+        payload: {
+          body: `→ CH-${row.task_num} created: ${body.title.trim()}${
+            typeof body.assignee_id === "string" ? ` (assigned @${body.assignee_id})` : ""
+          }`,
+        },
+        refs: [{ rel: "task", id: taskId }],
+      });
+    }
+    return { event, task_num: row.task_num };
+  });
+
+  app.patch("/api/tasks/:id", (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as {
+      status?: unknown;
+      assignee_id?: unknown;
+      assignee_kind?: unknown;
+    };
+    const events: CommittedEvent[] = [];
+    if (typeof body.status === "string") {
+      events.push(
+        ctx.log.append({
+          company_id: ctx.company.id,
+          stream: `task:${id}`,
+          type: "task.status_changed",
+          actor: { kind: "human", id: "founder" },
+          payload: { task_id: id, status: body.status },
+        }),
+      );
+    }
+    if (
+      typeof body.assignee_id === "string" &&
+      (body.assignee_kind === "human" || body.assignee_kind === "agent")
+    ) {
+      events.push(
+        ctx.log.append({
+          company_id: ctx.company.id,
+          stream: `task:${id}`,
+          type: "task.assigned",
+          actor: { kind: "human", id: "founder" },
+          payload: {
+            task_id: id,
+            assignee_id: body.assignee_id,
+            assignee_kind: body.assignee_kind,
+          },
+        }),
+      );
+    }
+    if (events.length === 0) {
+      return reply.code(400).send({ error: "nothing to update" });
+    }
+    return { events };
+  });
+
+  app.get("/api/tasks/:id/timeline", (request) => {
+    const { id } = request.params as { id: string };
+    const events = ctx.log
+      .read({
+        stream: `task:${id}`,
+        companyId: ctx.company.id,
+        afterSeq: 0,
+        limit: 500,
+      })
+      .filter((e) => e.visibility === "company");
+    return { events };
   });
 
   app.get("/api/log", (request) => {

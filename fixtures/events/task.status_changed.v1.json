@@ -1,0 +1,1 @@
+{ "type": "task.status_changed", "payload": { "task_id": "tsk_01", "status": "review" } }

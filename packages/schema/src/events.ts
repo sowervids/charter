@@ -59,6 +59,31 @@ export const EVENT_PAYLOADS = {
     body: z.string().min(1).max(20_000),
   }),
 
+  /** ---- Tasks (stream: task:<id>; comments are message.posted on it) ---- */
+  "task.created": z.object({
+    task_id: z.string().min(1),
+    title: z.string().min(1).max(200),
+    body: z.string().max(20_000).optional(),
+    assignee_id: z.string().optional(),
+    assignee_kind: z.enum(["human", "agent"]).optional(),
+    origin_event_id: z.string().optional(),
+  }),
+  "task.assigned": z.object({
+    task_id: z.string().min(1),
+    assignee_id: z.string().min(1),
+    assignee_kind: z.enum(["human", "agent"]),
+  }),
+  "task.status_changed": z.object({
+    task_id: z.string().min(1),
+    status: z.enum(["triage", "todo", "doing", "review", "done", "dropped"]),
+  }),
+  "task.pr_opened": z.object({
+    task_id: z.string().min(1),
+    pr_number: z.number().int().positive(),
+    pr_url: z.string().min(1),
+    branch: z.string().min(1),
+  }),
+
   /** ---- Agent run journal (stream: agent:<id>) ---- */
   "agent.run_queued": z.object({
     run_id: z.string().min(1),
@@ -66,6 +91,9 @@ export const EVENT_PAYLOADS = {
     channel_id: z.string().min(1),
     trigger_event_id: z.string().min(1),
     priority: z.enum(["p0", "p1", "p2"]),
+    /** additive (v2): task-execution runs — omitted means chat */
+    kind: z.enum(["chat", "task"]).optional(),
+    task_id: z.string().optional(),
   }),
   "agent.run_started": z.object({
     run_id: z.string().min(1),

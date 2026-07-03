@@ -104,4 +104,31 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX ix_agent_runs_agent  ON agent_runs (company_id, agent_id, queued_at);
     `,
   },
+  {
+    version: 5,
+    name: "tasks_projection_and_run_kinds",
+    sql: `
+      CREATE TABLE tasks (
+        task_id         TEXT PRIMARY KEY,
+        task_num        INTEGER NOT NULL UNIQUE,
+        company_id      TEXT NOT NULL,
+        title           TEXT NOT NULL,
+        body            TEXT,
+        status          TEXT NOT NULL DEFAULT 'triage' CHECK (status IN
+          ('triage','todo','doing','review','done','dropped')),
+        assignee_id     TEXT,
+        assignee_kind   TEXT CHECK (assignee_kind IN ('human','agent')),
+        origin_event_id TEXT,
+        pr_number       INTEGER,
+        pr_url          TEXT,
+        branch          TEXT,
+        created_at      TEXT NOT NULL,
+        updated_at      TEXT NOT NULL
+      );
+      CREATE INDEX ix_tasks_status ON tasks (company_id, status, task_num);
+
+      ALTER TABLE agent_runs ADD COLUMN kind TEXT NOT NULL DEFAULT 'chat';
+      ALTER TABLE agent_runs ADD COLUMN task_id TEXT;
+    `,
+  },
 ];

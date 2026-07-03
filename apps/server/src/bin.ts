@@ -16,7 +16,16 @@ if (root === null) {
 }
 
 const ctx = openServerContext(root);
-const app = buildServer(ctx);
+const { loadRegistry } = await import("@charter/agents");
+const registry = loadRegistry(root);
+const app = buildServer(ctx, {
+  roster: [...registry.values()].map((agent) => ({
+    id: agent.id,
+    name: agent.name,
+    role: agent.role,
+    kind: "agent" as const,
+  })),
+});
 
 // Serve the built web app when it exists (production mode). In dev, Vite
 // serves the UI and proxies /api here.
@@ -44,10 +53,7 @@ console.log(styleText("dim", `  ${ctx.log.lastSeq()} events in the log`));
 // The agent orchestrator lives inside charterd: mentions trigger runs,
 // runs journal to the same log the UI streams from.
 if (process.env["CHARTER_AGENTS"] !== "0") {
-  const { ClaudeCliRuntime, Orchestrator, loadRegistry } = await import(
-    "@charter/agents"
-  );
-  const registry = loadRegistry(root);
+  const { ClaudeCliRuntime, Orchestrator } = await import("@charter/agents");
   if (registry.size > 0) {
     const orchestrator = new Orchestrator({
       db: ctx.db,
@@ -57,6 +63,7 @@ if (process.env["CHARTER_AGENTS"] !== "0") {
       registry,
       runtime: new ClaudeCliRuntime(),
       agentsHome: join(root, "agents-home"),
+      repoRoot: root,
     });
     orchestrator.start();
     console.log(

@@ -7,3 +7,7 @@ export function newEventId(): string {
 export function newRunId(): string {
   return `run_${ulid()}`;
 }
+
+export function newTaskId(): string {
+  return `tsk_${ulid()}`;
+}

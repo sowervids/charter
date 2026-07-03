@@ -50,9 +50,32 @@ export interface ChannelInfo {
   created_at: string;
 }
 
+export interface RosterEntry {
+  id: string;
+  name: string;
+  role: string;
+  kind: "human" | "agent";
+}
+
+export interface TaskInfo {
+  task_id: string;
+  task_num: number;
+  title: string;
+  body: string | null;
+  status: "triage" | "todo" | "doing" | "review" | "done" | "dropped";
+  assignee_id: string | null;
+  assignee_kind: "human" | "agent" | null;
+  pr_number: number | null;
+  pr_url: string | null;
+  branch: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Bootstrap {
   company: { id: string; name: string };
   channels: ChannelInfo[];
+  roster: RosterEntry[];
   lastSeq: number;
 }
 
@@ -70,5 +93,34 @@ export const api = {
   log: (after = 0, limit = 200) =>
     request<{ events: CommittedEvent[] }>(
       `/api/log?after=${after}&limit=${limit}`,
+    ),
+  tasks: () => request<{ tasks: TaskInfo[] }>("/api/tasks"),
+  createTask: (input: {
+    title: string;
+    body?: string;
+    assignee_id?: string;
+    assignee_kind?: "human" | "agent";
+    origin_event_id?: string;
+    origin_channel_id?: string;
+  }) =>
+    request<{ event: CommittedEvent; task_num: number }>("/api/tasks", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  patchTask: (
+    taskId: string,
+    patch: {
+      status?: TaskInfo["status"];
+      assignee_id?: string;
+      assignee_kind?: "human" | "agent";
+    },
+  ) =>
+    request<{ events: CommittedEvent[] }>(
+      `/api/tasks/${encodeURIComponent(taskId)}`,
+      { method: "PATCH", body: JSON.stringify(patch) },
+    ),
+  taskTimeline: (taskId: string) =>
+    request<{ events: CommittedEvent[] }>(
+      `/api/tasks/${encodeURIComponent(taskId)}/timeline`,
     ),
 };

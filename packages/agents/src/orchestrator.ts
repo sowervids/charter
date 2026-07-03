@@ -6,7 +6,16 @@ import type { Db, EventLog } from "@charter/core";
 import { Governor } from "./governor.js";
 import { buildPrompt } from "./prompt.js";
 import { extractMentions } from "./registry.js";
-import type { AgentConfig, AgentRuntime } from "./types.js";
+import {
+  buildTaskPrompt,
+  branchName,
+  diffStat,
+  extractPrUrl,
+  prepareWorktree,
+  taskAllowedTools,
+  type TaskRow,
+} from "./taskwork.js";
+import type { AgentConfig, AgentJob, AgentRuntime } from "./types.js";
 
 const CONTEXT_EVENTS = 30;
 const PUMP_MS = 250;
@@ -19,6 +28,8 @@ export interface OrchestratorOptions {
   registry: Map<string, AgentConfig>;
   runtime: AgentRuntime;
   agentsHome: string;
+  /** Repo root — required for task runs (worktrees live beside it). */
+  repoRoot?: string;
   concurrency?: number;
 }
 
@@ -29,6 +40,13 @@ interface RunRow {
   trigger_event_id: string;
   status: string;
   session_id: string | null;
+  kind: "chat" | "task";
+  task_id: string | null;
+}
+
+interface PreparedJob {
+  job: AgentJob;
+  onSuccess: (text: string) => string | undefined;
 }
 
 export class Orchestrator {
@@ -58,18 +76,37 @@ export class Orchestrator {
     return this.governor.status();
   }
 
-  /** Mentions by HUMANS trigger runs (agent-originated mentions wait for the
-   *  hop-counted delegation model in a later phase — no loops by construction). */
+  /** Mentions by HUMANS trigger chat runs; agent-assigned tasks trigger task
+   *  runs. Agent-originated mentions wait for the hop-counted delegation
+   *  model in a later phase — no loops by construction. */
   private maybeTrigger(event: CommittedEvent): void {
-    if (event.type !== "message.posted") return;
-    if (event.actor.kind !== "human") return;
-    const channelId = event.stream.startsWith("channel:")
-      ? event.stream.slice(8)
-      : null;
-    if (channelId === null) return;
-    const body = (event.payload as { body: string }).body;
-    for (const agentId of extractMentions(body, this.opts.registry)) {
-      this.createRun(agentId, channelId, event.id, "p0");
+    if (event.type === "message.posted" && event.actor.kind === "human") {
+      const channelId = event.stream.startsWith("channel:")
+        ? event.stream.slice(8)
+        : null;
+      if (channelId === null) return;
+      const body = (event.payload as { body: string }).body;
+      for (const agentId of extractMentions(body, this.opts.registry)) {
+        this.createRun(agentId, channelId, event.id, "p0");
+      }
+      return;
+    }
+    if (event.type === "task.created" || event.type === "task.assigned") {
+      const p = event.payload as {
+        task_id: string;
+        assignee_id?: string;
+        assignee_kind?: string;
+      };
+      if (
+        p.assignee_kind === "agent" &&
+        p.assignee_id !== undefined &&
+        this.opts.registry.has(p.assignee_id)
+      ) {
+        this.createRun(p.assignee_id, "devlog", event.id, "p1", {
+          kind: "task",
+          taskId: p.task_id,
+        });
+      }
     }
   }
 
@@ -78,6 +115,7 @@ export class Orchestrator {
     channelId: string,
     triggerEventId: string,
     priority: "p0" | "p1" | "p2",
+    options?: { kind: "chat" | "task"; taskId?: string },
   ): string {
     const runId = newRunId();
     this.opts.log.append({
@@ -91,6 +129,8 @@ export class Orchestrator {
         channel_id: channelId,
         trigger_event_id: triggerEventId,
         priority,
+        ...(options?.kind !== undefined ? { kind: options.kind } : {}),
+        ...(options?.taskId !== undefined ? { task_id: options.taskId } : {}),
       },
       refs: [{ rel: "trigger", id: triggerEventId }],
     });
@@ -108,7 +148,8 @@ export class Orchestrator {
   private recover(): void {
     const stale = this.opts.db
       .prepare(
-        `SELECT run_id, agent_id, channel_id, trigger_event_id, status, session_id
+        `SELECT run_id, agent_id, channel_id, trigger_event_id, status,
+                session_id, kind, task_id
            FROM agent_runs
           WHERE company_id = ? AND status IN ('queued', 'running')`,
       )
@@ -121,12 +162,10 @@ export class Orchestrator {
         actor: { kind: "system", id: "charterd" },
         payload: { run_id: run.run_id },
       });
-      this.createRun(
-        run.agent_id,
-        run.channel_id,
-        run.trigger_event_id,
-        "p0",
-      );
+      this.createRun(run.agent_id, run.channel_id, run.trigger_event_id, "p0", {
+        kind: run.kind,
+        ...(run.task_id !== null ? { taskId: run.task_id } : {}),
+      });
     }
   }
 
@@ -144,7 +183,8 @@ export class Orchestrator {
   private runRow(runId: string): RunRow | undefined {
     return this.opts.db
       .prepare(
-        `SELECT run_id, agent_id, channel_id, trigger_event_id, status, session_id
+        `SELECT run_id, agent_id, channel_id, trigger_event_id, status,
+                session_id, kind, task_id
            FROM agent_runs WHERE run_id = ?`,
       )
       .get(runId) as RunRow | undefined;
@@ -176,52 +216,12 @@ export class Orchestrator {
         return;
       }
 
-      // Workspace: stable per-agent cwd — this is what scopes --resume.
-      const cwd = join(opts.agentsHome, agent.id);
-      mkdirSync(cwd, { recursive: true });
-      writeFileSync(join(cwd, "CLAUDE.md"), agent.charter, "utf8");
-
-      // Session: resume the last session for this agent+channel, else mint.
-      const prior = opts.db
-        .prepare(
-          `SELECT session_id FROM agent_runs
-            WHERE company_id = ? AND agent_id = ? AND channel_id = ?
-              AND status = 'completed' AND session_id IS NOT NULL
-            ORDER BY updated_at DESC LIMIT 1`,
-        )
-        .get(opts.companyId, agent.id, run.channel_id) as
-        | { session_id: string }
-        | undefined;
-      const sessionId = prior?.session_id ?? randomUUID();
-      const resume = prior !== undefined;
-
-      const trigger = opts.log.getById(run.trigger_event_id) ?? undefined;
-      const timeline = opts.log.tail({
-        stream: channelStream(run.channel_id),
-        companyId: opts.companyId,
-        limit: CONTEXT_EVENTS,
-      });
-      if (trigger === undefined) {
-        this.fail(runId, agent.id, "runtime_error", "trigger event missing");
-        return;
-      }
-
-      const job = {
-        runId,
-        agent,
-        channelId: run.channel_id,
-        triggerEventId: run.trigger_event_id,
-        prompt: buildPrompt({
-          agent,
-          companyName: opts.companyName,
-          channelId: run.channel_id,
-          timeline,
-          trigger,
-        }),
-        cwd,
-        sessionId,
-        resume,
-      };
+      const prep =
+        run.kind === "task"
+          ? this.prepareTaskJob(run, agent)
+          : this.prepareChatJob(run, agent);
+      if (prep === null) return; // failure already journaled
+      const { job, onSuccess } = prep;
 
       const startedAt = Date.now();
       let terminal = false;
@@ -236,9 +236,9 @@ export class Orchestrator {
               run_id: runId,
               agent_id: agent.id,
               channel_id: run.channel_id,
-              session_id: sessionId,
+              session_id: job.sessionId,
               model: event.model,
-              resumed: resume,
+              resumed: job.resume,
             },
           });
         } else if (event.kind === "step") {
@@ -258,20 +258,7 @@ export class Orchestrator {
         } else if (event.kind === "result") {
           terminal = true;
           if (event.ok) {
-            const reply = opts.log.append({
-              company_id: opts.companyId,
-              stream: channelStream(run.channel_id),
-              type: "message.posted",
-              actor: {
-                kind: "agent",
-                id: agent.id,
-                session_id: sessionId,
-                invocation_id: runId,
-                on_behalf_of: trigger.actor.id,
-              },
-              payload: { body: event.text || "(empty reply)" },
-              refs: [{ rel: "reply_to", id: trigger.id }],
-            });
+            const replyEventId = onSuccess(event.text);
             opts.log.append({
               company_id: opts.companyId,
               stream: `agent:${agent.id}`,
@@ -281,7 +268,9 @@ export class Orchestrator {
                 run_id: runId,
                 num_turns: event.numTurns,
                 duration_ms: Date.now() - startedAt,
-                reply_event_id: reply.id,
+                ...(replyEventId !== undefined
+                  ? { reply_event_id: replyEventId }
+                  : {}),
                 ...(event.usage ? { usage: event.usage } : {}),
               },
             });
@@ -318,6 +307,191 @@ export class Orchestrator {
         }
       }
     }
+  }
+
+  private prepareChatJob(run: RunRow, agent: AgentConfig): PreparedJob | null {
+    const { opts } = this;
+    const cwd = join(opts.agentsHome, agent.id);
+    mkdirSync(cwd, { recursive: true });
+    writeFileSync(join(cwd, "CLAUDE.md"), agent.charter, "utf8");
+
+    const prior = opts.db
+      .prepare(
+        `SELECT session_id FROM agent_runs
+          WHERE company_id = ? AND agent_id = ? AND channel_id = ?
+            AND kind = 'chat' AND status = 'completed' AND session_id IS NOT NULL
+          ORDER BY updated_at DESC LIMIT 1`,
+      )
+      .get(opts.companyId, agent.id, run.channel_id) as
+      | { session_id: string }
+      | undefined;
+    const sessionId = prior?.session_id ?? randomUUID();
+
+    const trigger = opts.log.getById(run.trigger_event_id);
+    if (trigger === null) {
+      this.fail(run.run_id, agent.id, "runtime_error", "trigger event missing");
+      return null;
+    }
+    const timeline = opts.log.tail({
+      stream: channelStream(run.channel_id),
+      companyId: opts.companyId,
+      limit: CONTEXT_EVENTS,
+    });
+
+    return {
+      job: {
+        runId: run.run_id,
+        agent,
+        channelId: run.channel_id,
+        triggerEventId: run.trigger_event_id,
+        prompt: buildPrompt({
+          agent,
+          companyName: opts.companyName,
+          channelId: run.channel_id,
+          timeline,
+          trigger,
+        }),
+        cwd,
+        sessionId,
+        resume: prior !== undefined,
+      },
+      onSuccess: (text) => {
+        const reply = opts.log.append({
+          company_id: opts.companyId,
+          stream: channelStream(run.channel_id),
+          type: "message.posted",
+          actor: {
+            kind: "agent",
+            id: agent.id,
+            session_id: sessionId,
+            invocation_id: run.run_id,
+            on_behalf_of: trigger.actor.id,
+          },
+          payload: { body: text || "(empty reply)" },
+          refs: [{ rel: "reply_to", id: trigger.id }],
+        });
+        return reply.id;
+      },
+    };
+  }
+
+  private prepareTaskJob(run: RunRow, agent: AgentConfig): PreparedJob | null {
+    const { opts } = this;
+    if (opts.repoRoot === undefined) {
+      this.fail(run.run_id, agent.id, "runtime_error", "no repoRoot configured");
+      return null;
+    }
+    if (run.task_id === null) {
+      this.fail(run.run_id, agent.id, "runtime_error", "task run without task_id");
+      return null;
+    }
+    const task = opts.db
+      .prepare(
+        `SELECT task_id, task_num, title, body, status, assignee_id
+           FROM tasks WHERE task_id = ? AND company_id = ?`,
+      )
+      .get(run.task_id, opts.companyId) as TaskRow | undefined;
+    if (task === undefined) {
+      this.fail(run.run_id, agent.id, "runtime_error", "task not found");
+      return null;
+    }
+
+    let worktree: string;
+    try {
+      worktree = prepareWorktree(opts.repoRoot, agent, task.task_num);
+    } catch (error) {
+      this.fail(run.run_id, agent.id, "spawn_error", `worktree: ${String(error)}`);
+      return null;
+    }
+    const branch = branchName(agent, task.task_num);
+    const taskStream = `task:${task.task_id}`;
+    const sessionId = randomUUID();
+
+    this.opts.log.append({
+      company_id: opts.companyId,
+      stream: taskStream,
+      type: "task.status_changed",
+      actor: { kind: "system", id: "charterd" },
+      payload: { task_id: task.task_id, status: "doing" },
+    });
+
+    return {
+      job: {
+        runId: run.run_id,
+        agent,
+        channelId: run.channel_id,
+        triggerEventId: run.trigger_event_id,
+        prompt: buildTaskPrompt({
+          agent,
+          companyName: opts.companyName,
+          task,
+          branch,
+        }),
+        cwd: worktree,
+        sessionId,
+        resume: false,
+        allowedTools: taskAllowedTools(),
+        maxWallMs: Math.max(agent.max_wall_ms, 20 * 60_000),
+      },
+      onSuccess: (text) => {
+        const comment = opts.log.append({
+          company_id: opts.companyId,
+          stream: taskStream,
+          type: "message.posted",
+          actor: {
+            kind: "agent",
+            id: agent.id,
+            session_id: sessionId,
+            invocation_id: run.run_id,
+          },
+          payload: { body: text || "(no output)" },
+        });
+        const pr = extractPrUrl(text);
+        if (pr !== null) {
+          opts.log.append({
+            company_id: opts.companyId,
+            stream: taskStream,
+            type: "task.pr_opened",
+            actor: { kind: "agent", id: agent.id, invocation_id: run.run_id },
+            payload: {
+              task_id: task.task_id,
+              pr_number: pr.number,
+              pr_url: pr.url,
+              branch,
+            },
+          });
+          let oversized = false;
+          try {
+            const stat = diffStat(worktree);
+            oversized = stat.insertions + stat.deletions > 200;
+          } catch {
+            /* worktree gone — skip the advisory check */
+          }
+          if (oversized) {
+            opts.log.append({
+              company_id: opts.companyId,
+              stream: taskStream,
+              type: "message.posted",
+              actor: { kind: "system", id: "charterd" },
+              payload: {
+                body: "⚠ Diff exceeds the ~200-line guardrail. Review extra carefully or ask for a split.",
+              },
+            });
+          }
+        }
+        opts.log.append({
+          company_id: opts.companyId,
+          stream: taskStream,
+          type: "task.status_changed",
+          actor: { kind: "system", id: "charterd" },
+          payload: {
+            task_id: task.task_id,
+            status: pr !== null ? "review" : "todo",
+          },
+        });
+        return comment.id;
+      },
+    };
   }
 
   private fail(

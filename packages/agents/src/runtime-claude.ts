@@ -27,6 +27,9 @@ export class ClaudeCliRuntime implements AgentRuntime {
       "--permission-mode",
       "dontAsk",
       "--strict-mcp-config",
+      ...(job.allowedTools && job.allowedTools.length > 0
+        ? ["--allowedTools", ...job.allowedTools]
+        : []),
       ...(job.resume
         ? ["--resume", job.sessionId]
         : ["--session-id", job.sessionId]),
@@ -60,7 +63,7 @@ export class ClaudeCliRuntime implements AgentRuntime {
     const killTimer = setTimeout(() => {
       child.kill("SIGTERM");
       setTimeout(() => child.kill("SIGKILL"), 5000).unref();
-    }, job.agent.max_wall_ms);
+    }, job.maxWallMs ?? job.agent.max_wall_ms);
 
     let sawRateLimit = false;
     let gotResult = false;

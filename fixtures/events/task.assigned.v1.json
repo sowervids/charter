@@ -1,0 +1,1 @@
+{ "type": "task.assigned", "payload": { "task_id": "tsk_01", "assignee_id": "ship", "assignee_kind": "agent" } }
