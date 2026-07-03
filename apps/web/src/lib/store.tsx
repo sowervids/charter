@@ -20,6 +20,7 @@ export type View =
   | { kind: "channel"; channelId: string }
   | { kind: "board"; taskId?: string }
   | { kind: "approvals" }
+  | { kind: "treasury" }
   | { kind: "trace"; runId: string }
   | { kind: "log" }
   | { kind: "gallery" };
@@ -247,6 +248,7 @@ function initialView(): View {
   if (path === "/log") return { kind: "log" };
   if (path === "/dev/gallery") return { kind: "gallery" };
   if (path === "/approvals") return { kind: "approvals" };
+  if (path === "/treasury") return { kind: "treasury" };
   if (path.startsWith("/trace/")) return { kind: "trace", runId: path.slice(7) };
   if (path === "/board") return { kind: "board" };
   if (path.startsWith("/board/")) {
@@ -365,7 +367,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               : "/board"
             : view.kind === "approvals"
               ? "/approvals"
-              : view.kind === "trace"
+              : view.kind === "treasury"
+                ? "/treasury"
+                : view.kind === "trace"
                 ? `/trace/${view.runId}`
                 : view.kind === "log"
                   ? "/log"

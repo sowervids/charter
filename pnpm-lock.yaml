@@ -53,6 +53,12 @@ importers:
       '@charter/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@charter/integrations':
+        specifier: workspace:*
+        version: link:../../packages/integrations
+      '@charter/ledger':
+        specifier: workspace:*
+        version: link:../../packages/ledger
       '@charter/policy':
         specifier: workspace:*
         version: link:../../packages/policy
@@ -144,6 +150,38 @@ importers:
       '@types/better-sqlite3':
         specifier: ^7.6.13
         version: 7.6.13
+      fast-check:
+        specifier: ^4.8.0
+        version: 4.8.0
+      vitest:
+        specifier: ^4.1.9
+        version: 4.1.9(@types/node@26.1.0)(vite@8.1.3(@types/node@26.1.0)(jiti@2.7.0))
+
+  packages/integrations:
+    dependencies:
+      '@charter/schema':
+        specifier: workspace:*
+        version: link:../schema
+    devDependencies:
+      '@types/node':
+        specifier: ^26.1.0
+        version: 26.1.0
+      vitest:
+        specifier: ^4.1.9
+        version: 4.1.9(@types/node@26.1.0)(vite@8.1.3(@types/node@26.1.0)(jiti@2.7.0))
+
+  packages/ledger:
+    dependencies:
+      '@charter/core':
+        specifier: workspace:*
+        version: link:../core
+      '@charter/schema':
+        specifier: workspace:*
+        version: link:../schema
+    devDependencies:
+      '@types/node':
+        specifier: ^26.1.0
+        version: 26.1.0
       fast-check:
         specifier: ^4.8.0
         version: 4.8.0

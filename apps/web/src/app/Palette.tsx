@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Command } from "cmdk";
-import { Hash, Kanban, ScrollText, ShieldCheck } from "lucide-react";
+import { Hash, Kanban, Landmark, ScrollText, ShieldCheck } from "lucide-react";
 import { useStore } from "../lib/store.js";
 
 /**
@@ -77,6 +77,10 @@ export function Palette() {
                 {state.approvalsPending}
               </span>
             )}
+          </Item>
+          <Item onSelect={() => run(() => navigate({ kind: "treasury" }))}>
+            <Landmark size={14} strokeWidth={1.5} className="text-text-3" />
+            Treasury
           </Item>
           <Item onSelect={() => run(() => navigate({ kind: "log" }))}>
             <ScrollText size={14} strokeWidth={1.5} className="text-text-3" />

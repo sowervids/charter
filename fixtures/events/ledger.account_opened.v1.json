@@ -1,0 +1,1 @@
+{ "type": "ledger.account_opened", "payload": { "account_id": "acct_cash_mock", "name": "Cash (Mock Bank)", "account_type": "asset", "currency": "USD", "external_ref": "mock:acct_1" } }

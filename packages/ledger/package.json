@@ -1,0 +1,13 @@
+{
+  "name": "@charter/ledger",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "scripts": { "build": "tsc", "test": "vitest run" },
+  "dependencies": {
+    "@charter/core": "workspace:*",
+    "@charter/schema": "workspace:*"
+  },
+  "devDependencies": { "@types/node": "^26.1.0", "fast-check": "^4.8.0", "vitest": "^4.1.9" }
+}

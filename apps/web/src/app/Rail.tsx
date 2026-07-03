@@ -1,4 +1,4 @@
-import { Hash, Kanban, ScrollText, Search, ShieldCheck } from "lucide-react";
+import { Hash, Kanban, Landmark, ScrollText, Search, ShieldCheck } from "lucide-react";
 import { useStore } from "../lib/store.js";
 
 export function Rail() {
@@ -78,6 +78,25 @@ export function Rail() {
               {state.approvalsPending}
             </span>
           )}
+        </button>
+        <button
+          type="button"
+          onClick={() => navigate({ kind: "treasury" })}
+          aria-current={state.view.kind === "treasury" ? "page" : undefined}
+          className={`flex h-8 w-full items-center gap-2 rounded-sm px-2 text-left transition-colors duration-(--motion-fast) ${
+            state.view.kind === "treasury"
+              ? "bg-bg-3 text-text-1"
+              : "text-text-2 hover:bg-bg-2 hover:text-text-1"
+          }`}
+        >
+          <Landmark
+            size={14}
+            strokeWidth={1.5}
+            className={
+              state.view.kind === "treasury" ? "text-accent" : "text-text-3"
+            }
+          />
+          <span className="text-[13px]">Treasury</span>
         </button>
       </div>
 

@@ -1,0 +1,1 @@
+{ "type": "ledger.payment_marked_sent", "payload": { "proposal_id": "pay_01" } }

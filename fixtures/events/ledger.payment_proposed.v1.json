@@ -1,0 +1,1 @@
+{ "type": "ledger.payment_proposed", "payload": { "proposal_id": "pay_01", "counterparty": "Vercel Inc", "amount_cents": 2000, "currency": "USD", "memo": "hosting" } }

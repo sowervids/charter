@@ -1,0 +1,1 @@
+{ "type": "ledger.external_txn_observed", "payload": { "source": "mock", "external_id": "tx_1", "amount_cents": 5000, "currency": "USD", "occurred_at": "2026-07-03", "description": "STRIPE PAYOUT" } }

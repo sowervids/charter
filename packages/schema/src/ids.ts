@@ -15,3 +15,11 @@ export function newTaskId(): string {
 export function newApprovalId(): string {
   return `apr_${ulid()}`;
 }
+
+export function newEntryId(): string {
+  return `ent_${ulid()}`;
+}
+
+export function newProposalId(): string {
+  return `pay_${ulid()}`;
+}

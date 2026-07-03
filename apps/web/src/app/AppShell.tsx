@@ -7,6 +7,7 @@ import { LogView } from "./LogView.js";
 import { Palette } from "./Palette.js";
 import { Rail } from "./Rail.js";
 import { TraceView } from "./TraceView.js";
+import { TreasuryView } from "./TreasuryView.js";
 
 export function AppShell() {
   const { state } = useStore();
@@ -24,6 +25,7 @@ export function AppShell() {
         )}
         {state.view.kind === "board" && <BoardView taskId={state.view.taskId} />}
         {state.view.kind === "approvals" && <ApprovalsView />}
+        {state.view.kind === "treasury" && <TreasuryView />}
         {state.view.kind === "trace" && <TraceView runId={state.view.runId} />}
         {state.view.kind === "log" && <LogView />}
       </main>

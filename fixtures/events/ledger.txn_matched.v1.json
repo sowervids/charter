@@ -1,0 +1,1 @@
+{ "type": "ledger.txn_matched", "payload": { "source": "mock", "external_id": "tx_1", "entry_id": "ent_01" } }

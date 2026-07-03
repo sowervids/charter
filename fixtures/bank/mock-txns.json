@@ -1,0 +1,37 @@
+[
+  {
+    "external_id": "mock_tx_001",
+    "amount_cents": 250000,
+    "currency": "USD",
+    "occurred_at": "2026-07-01",
+    "description": "STRIPE PAYOUT ST-9921"
+  },
+  {
+    "external_id": "mock_tx_002",
+    "amount_cents": -7250,
+    "currency": "USD",
+    "occurred_at": "2026-07-01",
+    "description": "STRIPE FEE ST-9921"
+  },
+  {
+    "external_id": "mock_tx_003",
+    "amount_cents": -2300,
+    "currency": "USD",
+    "occurred_at": "2026-07-02",
+    "description": "AWS EMEA 4471"
+  },
+  {
+    "external_id": "mock_tx_004",
+    "amount_cents": 120000,
+    "currency": "USD",
+    "occurred_at": "2026-07-02",
+    "description": "STRIPE PAYOUT ST-9950"
+  },
+  {
+    "external_id": "mock_tx_005",
+    "amount_cents": -2000,
+    "currency": "USD",
+    "occurred_at": "2026-07-03",
+    "description": "VERCEL INC 8804"
+  }
+]

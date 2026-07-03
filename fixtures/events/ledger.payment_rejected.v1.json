@@ -1,0 +1,1 @@
+{ "type": "ledger.payment_rejected", "payload": { "proposal_id": "pay_01", "note": "not this month" } }

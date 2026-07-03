@@ -155,4 +155,65 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX ix_approvals_hash   ON approvals (company_id, payload_hash, status);
     `,
   },
+  {
+    version: 7,
+    name: "ledger_projections",
+    sql: `
+      CREATE TABLE ledger_accounts (
+        account_id   TEXT PRIMARY KEY,
+        company_id   TEXT NOT NULL,
+        name         TEXT NOT NULL,
+        account_type TEXT NOT NULL CHECK (account_type IN
+          ('asset','liability','equity','revenue','expense')),
+        currency     TEXT NOT NULL,
+        external_ref TEXT,
+        created_at   TEXT NOT NULL
+      );
+      CREATE TABLE ledger_entries (
+        entry_id   TEXT PRIMARY KEY,
+        company_id TEXT NOT NULL,
+        entry_date TEXT NOT NULL,
+        memo       TEXT NOT NULL,
+        source_kind TEXT,
+        source_ref  TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE ledger_lines (
+        entry_id     TEXT NOT NULL,
+        line_no      INTEGER NOT NULL,
+        company_id   TEXT NOT NULL,
+        account_id   TEXT NOT NULL,
+        direction    TEXT NOT NULL CHECK (direction IN ('debit','credit')),
+        amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+        currency     TEXT NOT NULL,
+        PRIMARY KEY (entry_id, line_no)
+      );
+      CREATE INDEX ix_ledger_lines_account ON ledger_lines (company_id, account_id);
+      CREATE TABLE external_txns (
+        source       TEXT NOT NULL,
+        external_id  TEXT NOT NULL,
+        company_id   TEXT NOT NULL,
+        amount_cents INTEGER NOT NULL,
+        currency     TEXT NOT NULL,
+        occurred_at  TEXT NOT NULL,
+        description  TEXT NOT NULL,
+        matched_entry_id TEXT,
+        PRIMARY KEY (source, external_id)
+      );
+      CREATE TABLE payment_proposals (
+        proposal_id  TEXT PRIMARY KEY,
+        company_id   TEXT NOT NULL,
+        counterparty TEXT NOT NULL,
+        amount_cents INTEGER NOT NULL,
+        currency     TEXT NOT NULL,
+        memo         TEXT NOT NULL,
+        status       TEXT NOT NULL CHECK (status IN
+          ('proposed','sent','confirmed','rejected')),
+        proposed_by  TEXT NOT NULL,
+        confirmed_external_id TEXT,
+        created_at   TEXT NOT NULL,
+        updated_at   TEXT NOT NULL
+      );
+    `,
+  },
 ];

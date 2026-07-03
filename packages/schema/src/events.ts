@@ -84,6 +84,77 @@ export const EVENT_PAYLOADS = {
     branch: z.string().min(1),
   }),
 
+  /** ---- Ledger (stream: ledger) — double-entry, mirror mode ---- */
+  "ledger.account_opened": z.object({
+    account_id: z.string().min(1),
+    name: z.string().min(1).max(120),
+    account_type: z.enum(["asset", "liability", "equity", "revenue", "expense"]),
+    currency: z.string().length(3),
+    external_ref: z.string().optional(),
+  }),
+  "ledger.entry_posted": z
+    .object({
+      entry_id: z.string().min(1),
+      entry_date: z.string().min(10),
+      memo: z.string().min(1).max(500),
+      lines: z
+        .array(
+          z.object({
+            account_id: z.string().min(1),
+            direction: z.enum(["debit", "credit"]),
+            amount_cents: z.number().int().positive(),
+            currency: z.string().length(3),
+          }),
+        )
+        .min(2),
+      source: z
+        .object({ kind: z.enum(["import", "manual", "proposal"]), ref: z.string() })
+        .optional(),
+    })
+    .refine(
+      (entry) => {
+        const byCurrency = new Map<string, number>();
+        for (const line of entry.lines) {
+          const delta = line.direction === "debit" ? line.amount_cents : -line.amount_cents;
+          byCurrency.set(line.currency, (byCurrency.get(line.currency) ?? 0) + delta);
+        }
+        return [...byCurrency.values()].every((v) => v === 0);
+      },
+      { message: "unbalanced entry: Σdebits must equal Σcredits per currency" },
+    ),
+  "ledger.external_txn_observed": z.object({
+    source: z.enum(["stripe", "mercury", "mock"]),
+    external_id: z.string().min(1),
+    amount_cents: z.number().int(), // signed: + inflow, − outflow
+    currency: z.string().length(3),
+    occurred_at: z.string().min(10),
+    description: z.string().max(500),
+  }),
+  "ledger.txn_matched": z.object({
+    source: z.enum(["stripe", "mercury", "mock"]),
+    external_id: z.string().min(1),
+    entry_id: z.string().min(1),
+  }),
+  "ledger.payment_proposed": z.object({
+    proposal_id: z.string().min(1),
+    counterparty: z.string().min(1).max(200),
+    amount_cents: z.number().int().positive(),
+    currency: z.string().length(3),
+    memo: z.string().min(1).max(500),
+  }),
+  "ledger.payment_marked_sent": z.object({
+    proposal_id: z.string().min(1),
+  }),
+  "ledger.payment_rejected": z.object({
+    proposal_id: z.string().min(1),
+    note: z.string().max(500).optional(),
+  }),
+  "ledger.payment_confirmed": z.object({
+    proposal_id: z.string().min(1),
+    source: z.enum(["stripe", "mercury", "mock"]),
+    external_id: z.string().min(1),
+  }),
+
   /** ---- Approvals (stream: approval:<id>) ---- */
   "approval.requested": z.object({
     approval_id: z.string().min(1),
