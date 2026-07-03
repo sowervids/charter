@@ -1,0 +1,108 @@
+@import "tailwindcss";
+
+/**
+ * Charter design tokens — "The Book of Record".
+ * THE single source of truth. A hex code anywhere else in apps/web is a bug
+ * (CLAUDE.md UI rule 1). Hairlines instead of boxes; brass used like a
+ * notary's seal; mono for every datum; serif only for charter documents.
+ */
+@theme {
+  --color-bg-0: #0c0e12;
+  --color-bg-1: #12151b;
+  --color-bg-2: #191d25;
+  --color-bg-3: #21262f;
+  --color-line-1: #262b34;
+  --color-line-2: #343b47;
+  --color-text-1: #e8eaf0;
+  --color-text-2: #9ba3b0;
+  --color-text-3: #5f6875;
+  --color-accent: #d9a03f;
+  --color-accent-dim: #8a6a2f;
+  --color-accent-ink: #141414;
+  --color-ok: #3fb27f;
+  --color-danger: #e5534b;
+  --color-warn: #d9822b;
+  --color-info: #4c8de0;
+
+  /* 8-hue desaturated agent ramp: avatar rings + provenance rails */
+  --color-agent-1: #7a8cd9;
+  --color-agent-2: #5fa8a0;
+  --color-agent-3: #b07ac9;
+  --color-agent-4: #c98a7a;
+  --color-agent-5: #8fb06a;
+  --color-agent-6: #c9b46a;
+  --color-agent-7: #6aa8c9;
+  --color-agent-8: #c96a94;
+
+  --font-sans: "IBM Plex Sans", -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", monospace;
+  --font-serif: "IBM Plex Serif", Georgia, serif;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+
+  --motion-fast: 120ms;
+  --motion-med: 160ms;
+  --motion-slow: 200ms;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--color-bg-0);
+  color: var(--color-text-1);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Data numerals are always tabular (UI rule 4) */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The accent focus ring, everywhere (UI rule 6) */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -1px;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
+
+/* Scrollbars in keeping with the record */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-2) transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* The only ambient animation permitted: the agent presence ring */
+@keyframes presence-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 35%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 70%, transparent);
+  }
+}

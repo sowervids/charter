@@ -1,0 +1,160 @@
+import { NotebookPen } from "lucide-react";
+import type { CommittedEvent } from "@charter/schema";
+
+/**
+ * One event, rendered by type. The same component everywhere an event
+ * appears (UI rule 9): channel timelines now, task activity and traces later.
+ * Provenance (UI rule 8): agent-authored events get the 2px rail + mono
+ * small-caps attribution; humans render plain.
+ */
+export function EventRow({ event }: { event: CommittedEvent }) {
+  switch (event.type) {
+    case "message.posted":
+      return (
+        <Row event={event}>
+          <Body text={(event.payload as { body: string }).body} />
+        </Row>
+      );
+    case "devlog.note": {
+      const payload = event.payload as { note: string; tags?: string[] };
+      return (
+        <Row event={event} icon={<NotebookPen size={14} strokeWidth={1.5} className="text-text-3" />}>
+          <Body text={payload.note} />
+          {payload.tags && payload.tags.length > 0 && (
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              {payload.tags.map((tag) => (
+                <span
+                  key={tag}
+                  className="rounded-sm border border-line-1 px-1.5 font-mono text-[10px] leading-4 text-text-3"
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
+        </Row>
+      );
+    }
+    case "channel.created": {
+      const payload = event.payload as { name: string };
+      return (
+        <SystemLine event={event}>
+          #{payload.name} created by {event.actor.id}
+        </SystemLine>
+      );
+    }
+    case "company.created": {
+      const payload = event.payload as { name: string };
+      return (
+        <SystemLine event={event}>
+          {payload.name} founded by {event.actor.id}
+        </SystemLine>
+      );
+    }
+    default:
+      return (
+        <SystemLine event={event}>
+          {event.type} · {event.actor.kind}:{event.actor.id}
+        </SystemLine>
+      );
+  }
+}
+
+function Row({
+  event,
+  icon,
+  children,
+}: {
+  event: CommittedEvent;
+  icon?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const isAgent = event.actor.kind === "agent";
+  return (
+    <div
+      className={`group px-6 py-1.5 transition-colors duration-(--motion-fast) hover:bg-bg-1 ${
+        isAgent ? "border-l-2 border-agent-1" : ""
+      }`}
+    >
+      <div className="flex items-baseline gap-2">
+        <span
+          className={
+            isAgent
+              ? "font-mono text-[11px] font-medium uppercase tracking-[0.06em] text-agent-1"
+              : "text-[13px] font-semibold text-text-1"
+          }
+        >
+          {event.actor.id}
+        </span>
+        {icon}
+        <time
+          dateTime={event.created_at}
+          className="tnum font-mono text-[10px] text-text-3 opacity-0 transition-opacity duration-(--motion-fast) group-hover:opacity-100"
+        >
+          {event.created_at.slice(11, 16)}
+        </time>
+      </div>
+      <div className="text-[14px] leading-[21px] text-text-1">{children}</div>
+    </div>
+  );
+}
+
+function Body({ text }: { text: string }) {
+  return <p className="whitespace-pre-wrap break-words">{text}</p>;
+}
+
+function SystemLine({
+  event,
+  children,
+}: {
+  event: CommittedEvent;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center gap-3 px-6 py-1">
+      <span className="h-px flex-none w-4 bg-line-1" />
+      <span className="font-mono text-[11px] text-text-3">
+        {children}
+        <time dateTime={event.created_at} className="tnum ml-2">
+          {event.created_at.slice(11, 16)}
+        </time>
+      </span>
+      <span className="h-px flex-1 bg-line-1" />
+    </div>
+  );
+}
+
+export function DayDivider({ date }: { date: string }) {
+  return (
+    <div className="sticky top-0 z-10 flex items-center gap-3 bg-bg-0/90 px-6 py-2 backdrop-blur-sm">
+      <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-text-3">
+        {date}
+      </span>
+      <span className="h-px flex-1 bg-line-1" />
+    </div>
+  );
+}
+
+export function PendingRow({ body, failed }: { body: string; failed?: boolean }) {
+  return (
+    <div className="px-6 py-1.5">
+      <div className="flex items-baseline gap-2">
+        <span className="text-[13px] font-semibold text-text-1">founder</span>
+        {failed ? (
+          <span className="font-mono text-[10px] text-danger">
+            failed — not on record
+          </span>
+        ) : (
+          <span className="tnum font-mono text-[10px] text-text-3">…</span>
+        )}
+      </div>
+      <p
+        className={`whitespace-pre-wrap break-words text-[14px] leading-[21px] ${
+          failed ? "text-text-3 line-through" : "text-text-2"
+        }`}
+      >
+        {body}
+      </p>
+    </div>
+  );
+}
