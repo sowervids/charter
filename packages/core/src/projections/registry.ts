@@ -1,5 +1,6 @@
 import type { Projector } from "./types.js";
 import { agentRunsProjector } from "./agentRuns.js";
+import { agentStateProjector } from "./agentState.js";
 import { approvalsProjector } from "./approvals.js";
 import { channelsProjector } from "./channels.js";
 import { devlogProjector } from "./devlog.js";
@@ -14,4 +15,5 @@ export const PROJECTORS: readonly Projector[] = [
   tasksProjector,
   approvalsProjector,
   ledgerProjector,
+  agentStateProjector,
 ];

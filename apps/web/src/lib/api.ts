@@ -55,7 +55,10 @@ export interface RosterEntry {
   name: string;
   role: string;
   kind: "human" | "agent";
+  paused?: boolean;
 }
+
+export type TaskPriority = "none" | "low" | "med" | "high" | "urgent";
 
 export interface TaskInfo {
   task_id: string;
@@ -63,13 +66,43 @@ export interface TaskInfo {
   title: string;
   body: string | null;
   status: "triage" | "todo" | "doing" | "review" | "done" | "dropped";
+  priority: TaskPriority;
   assignee_id: string | null;
   assignee_kind: "human" | "agent" | null;
+  origin_event_id: string | null;
   pr_number: number | null;
   pr_url: string | null;
   branch: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface AgentSummary {
+  id: string;
+  name: string;
+  role: string;
+  model: string;
+  paused: boolean;
+  runs_total: number;
+  runs_today: number;
+  cost_usd: number;
+  failed: number;
+}
+
+export interface AgentDetail {
+  agent: {
+    id: string;
+    name: string;
+    role: string;
+    model: string;
+    max_turns: number;
+    daily_runs: number;
+    paused: boolean;
+  };
+  charter: string;
+  policy: unknown;
+  budget: { runs_total: number; runs_today: number; cost_usd: number; failed: number };
+  activity: CommittedEvent[];
 }
 
 export interface Bootstrap {
@@ -113,16 +146,62 @@ export const api = {
       status?: TaskInfo["status"];
       assignee_id?: string;
       assignee_kind?: "human" | "agent";
+      title?: string;
+      body?: string;
+      priority?: TaskPriority;
     },
   ) =>
     request<{ events: CommittedEvent[] }>(
       `/api/tasks/${encodeURIComponent(taskId)}`,
       { method: "PATCH", body: JSON.stringify(patch) },
     ),
+  deleteTask: (taskId: string) =>
+    request<{ event: CommittedEvent }>(
+      `/api/tasks/${encodeURIComponent(taskId)}`,
+      { method: "DELETE" },
+    ),
+  taskComment: (taskId: string, body: string) =>
+    request<{ event: CommittedEvent }>(
+      `/api/tasks/${encodeURIComponent(taskId)}/comments`,
+      { method: "POST", body: JSON.stringify({ body }) },
+    ),
   taskTimeline: (taskId: string) =>
     request<{ events: CommittedEvent[] }>(
       `/api/tasks/${encodeURIComponent(taskId)}/timeline`,
     ),
+  createChannel: (name: string, topic?: string) =>
+    request<{ event: CommittedEvent; channel_id: string }>("/api/channels", {
+      method: "POST",
+      body: JSON.stringify({ name, topic }),
+    }),
+  updateChannel: (id: string, patch: { name?: string; topic?: string }) =>
+    request<{ event: CommittedEvent }>(
+      `/api/channels/${encodeURIComponent(id)}`,
+      { method: "PATCH", body: JSON.stringify(patch) },
+    ),
+  archiveChannel: (id: string) =>
+    request<{ event: CommittedEvent }>(
+      `/api/channels/${encodeURIComponent(id)}/archive`,
+      { method: "POST" },
+    ),
+  deleteMessage: (channelId: string, eventId: string) =>
+    request<{ event: CommittedEvent }>(
+      `/api/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(eventId)}`,
+      { method: "DELETE" },
+    ),
+  agents: () => request<{ agents: AgentSummary[] }>("/api/agents"),
+  agent: (id: string) =>
+    request<AgentDetail>(`/api/agents/${encodeURIComponent(id)}`),
+  pauseAgent: (id: string, paused: boolean) =>
+    request<{ event: CommittedEvent }>(
+      `/api/agents/${encodeURIComponent(id)}/${paused ? "pause" : "resume"}`,
+      { method: "POST" },
+    ),
+  hireAgent: (input: { id: string; name: string; role: string; charter: string; model?: string }) =>
+    request<{ event: CommittedEvent; agent_id: string }>("/api/agents", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
   approvals: (status = "pending") =>
     request<{ approvals: ApprovalInfo[] }>(`/api/approvals?status=${status}`),
   resolveApproval: (id: string, decision: "allow" | "deny", note?: string) =>

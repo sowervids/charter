@@ -216,4 +216,20 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    version: 8,
+    name: "task_priority_channel_archive_agent_state",
+    sql: `
+      ALTER TABLE tasks ADD COLUMN priority TEXT NOT NULL DEFAULT 'none';
+      ALTER TABLE channels ADD COLUMN archived_at TEXT;
+
+      CREATE TABLE agent_state (
+        agent_id   TEXT NOT NULL,
+        company_id TEXT NOT NULL,
+        paused     INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (company_id, agent_id)
+      );
+    `,
+  },
 ];

@@ -82,6 +82,16 @@ export class Orchestrator {
     return this.governor.status();
   }
 
+  /** A paused agent takes no new triggers (its runs already in flight finish). */
+  private isPaused(agentId: string): boolean {
+    const row = this.opts.db
+      .prepare(
+        "SELECT paused FROM agent_state WHERE company_id = ? AND agent_id = ?",
+      )
+      .get(this.opts.companyId, agentId) as { paused: number } | undefined;
+    return row?.paused === 1;
+  }
+
   /** Mentions by HUMANS trigger chat runs; agent-assigned tasks trigger task
    *  runs. Agent-originated mentions wait for the hop-counted delegation
    *  model in a later phase — no loops by construction. */
@@ -93,6 +103,7 @@ export class Orchestrator {
       if (channelId === null) return;
       const body = (event.payload as { body: string }).body;
       for (const agentId of extractMentions(body, this.opts.registry)) {
+        if (this.isPaused(agentId)) continue;
         this.createRun(agentId, channelId, event.id, "p0");
       }
       return;
@@ -106,7 +117,8 @@ export class Orchestrator {
       if (
         p.assignee_kind === "agent" &&
         p.assignee_id !== undefined &&
-        this.opts.registry.has(p.assignee_id)
+        this.opts.registry.has(p.assignee_id) &&
+        !this.isPaused(p.assignee_id)
       ) {
         this.createRun(p.assignee_id, "devlog", event.id, "p1", {
           kind: "task",

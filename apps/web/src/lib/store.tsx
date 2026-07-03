@@ -13,6 +13,7 @@ import {
   type ChannelInfo,
   type RosterEntry,
   type TaskInfo,
+  type TaskPriority,
 } from "./api.js";
 import { connectEvents, type ConnectionStatus } from "./sse.js";
 
@@ -21,6 +22,9 @@ export type View =
   | { kind: "board"; taskId?: string }
   | { kind: "approvals" }
   | { kind: "treasury" }
+  | { kind: "people" }
+  | { kind: "agent"; agentId: string }
+  | { kind: "connections" }
   | { kind: "trace"; runId: string }
   | { kind: "log" }
   | { kind: "gallery" };
@@ -33,26 +37,11 @@ export interface PendingMessage {
   failed?: boolean;
 }
 
-interface State {
-  phase: "loading" | "ready" | "error";
-  company: { id: string; name: string } | null;
-  channels: ChannelInfo[];
-  view: View;
-  connection: ConnectionStatus;
-  /** channelId → events sorted by seq (deduped by id) */
-  timelines: Record<string, CommittedEvent[]>;
-  /** channelId → true once the backlog fetch completed */
-  loaded: Record<string, boolean>;
-  pending: PendingMessage[];
-  lastSeq: number;
-  /** runId → live agent run state (from agent.run_* events) */
-  runs: Record<string, AgentRunState>;
-  roster: RosterEntry[];
-  tasks: TaskInfo[];
-  tasksLoaded: boolean;
-  approvalsPending: number;
-  /** taskId → its stream events (detail panel) */
-  taskTimelines: Record<string, CommittedEvent[]>;
+export interface Toast {
+  id: string;
+  text: string;
+  tone: "default" | "ok" | "danger";
+  undo?: () => void;
 }
 
 export interface AgentRunState {
@@ -63,6 +52,27 @@ export interface AgentRunState {
   reason?: string;
   startedAt: string;
   endedAt?: string;
+}
+
+interface State {
+  phase: "loading" | "ready" | "error";
+  company: { id: string; name: string } | null;
+  channels: ChannelInfo[];
+  view: View;
+  connection: ConnectionStatus;
+  timelines: Record<string, CommittedEvent[]>;
+  loaded: Record<string, boolean>;
+  /** message_event_id → true; folds message.deleted over any timeline */
+  deleted: Record<string, true>;
+  pending: PendingMessage[];
+  lastSeq: number;
+  runs: Record<string, AgentRunState>;
+  roster: RosterEntry[];
+  tasks: TaskInfo[];
+  tasksLoaded: boolean;
+  approvalsPending: number;
+  taskTimelines: Record<string, CommittedEvent[]>;
+  toasts: Toast[];
 }
 
 type Action =
@@ -77,7 +87,10 @@ type Action =
   | { t: "pending_failed"; tempId: string }
   | { t: "tasks"; tasks: TaskInfo[] }
   | { t: "task_timeline"; taskId: string; events: CommittedEvent[] }
-  | { t: "approvals_pending"; count: number };
+  | { t: "roster"; roster: RosterEntry[] }
+  | { t: "approvals_pending"; count: number }
+  | { t: "toast"; toast: Toast }
+  | { t: "toast_dismiss"; id: string };
 
 function channelOf(stream: string): string | null {
   return stream.startsWith("channel:") ? stream.slice(8) : null;
@@ -103,10 +116,16 @@ function reducer(state: State, action: Action): State {
         roster: action.data.roster,
         lastSeq: action.data.lastSeq,
       };
+    case "roster":
+      return { ...state, roster: action.roster };
     case "tasks":
       return { ...state, tasks: action.tasks, tasksLoaded: true };
     case "approvals_pending":
       return { ...state, approvalsPending: action.count };
+    case "toast":
+      return { ...state, toasts: [...state.toasts, action.toast] };
+    case "toast_dismiss":
+      return { ...state, toasts: state.toasts.filter((t) => t.id !== action.id) };
     case "task_timeline":
       return {
         ...state,
@@ -137,12 +156,11 @@ function reducer(state: State, action: Action): State {
         },
       };
     case "event": {
-      const next: State = {
-        ...state,
-        lastSeq: Math.max(state.lastSeq, action.event.seq),
-      };
-      if (action.event.type.startsWith("agent.run_")) {
-        const p = action.event.payload as {
+      const event = action.event;
+      const next: State = { ...state, lastSeq: Math.max(state.lastSeq, event.seq) };
+
+      if (event.type.startsWith("agent.run_")) {
+        const p = event.payload as {
           run_id: string;
           agent_id?: string;
           channel_id?: string;
@@ -150,15 +168,15 @@ function reducer(state: State, action: Action): State {
         };
         const prior = state.runs[p.run_id];
         const status =
-          action.event.type === "agent.run_queued"
+          event.type === "agent.run_queued"
             ? ("queued" as const)
-            : action.event.type === "agent.run_started"
+            : event.type === "agent.run_started"
               ? ("running" as const)
-              : action.event.type === "agent.run_completed"
+              : event.type === "agent.run_completed"
                 ? ("completed" as const)
-                : action.event.type === "agent.run_failed"
+                : event.type === "agent.run_failed"
                   ? ("failed" as const)
-                  : action.event.type === "agent.run_interrupted"
+                  : event.type === "agent.run_interrupted"
                     ? ("interrupted" as const)
                     : null;
         if (status !== null) {
@@ -170,58 +188,58 @@ function reducer(state: State, action: Action): State {
               channelId: p.channel_id ?? prior?.channelId ?? "",
               status,
               ...(p.reason !== undefined ? { reason: p.reason } : {}),
-              startedAt: prior?.startedAt ?? action.event.created_at,
-              ...(status === "completed" ||
-              status === "failed" ||
-              status === "interrupted"
-                ? { endedAt: action.event.created_at }
+              startedAt: prior?.startedAt ?? event.created_at,
+              ...(status === "completed" || status === "failed" || status === "interrupted"
+                ? { endedAt: event.created_at }
                 : {}),
             },
           };
         }
       }
-      if (
-        action.event.type === "channel.created" &&
-        !state.channels.some(
-          (c) =>
-            c.channel_id ===
-            (action.event.payload as { channel_id: string }).channel_id,
-        )
-      ) {
-        const p = action.event.payload as {
-          channel_id: string;
-          name: string;
-          topic?: string;
-        };
-        next.channels = [
-          ...state.channels,
-          {
-            channel_id: p.channel_id,
-            name: p.name,
-            topic: p.topic ?? null,
-            created_at: action.event.created_at,
-          },
-        ].sort((a, b) => a.name.localeCompare(b.name));
+
+      if (event.type === "channel.created") {
+        const p = event.payload as { channel_id: string; name: string; topic?: string };
+        if (!state.channels.some((c) => c.channel_id === p.channel_id)) {
+          next.channels = [
+            ...state.channels,
+            {
+              channel_id: p.channel_id,
+              name: p.name,
+              topic: p.topic ?? null,
+              created_at: event.created_at,
+            },
+          ];
+        }
       }
-      const channelId = channelOf(action.event.stream);
-      if (channelId !== null && action.event.visibility === "company") {
+      if (event.type === "channel.updated") {
+        const p = event.payload as { channel_id: string; name?: string; topic?: string };
+        next.channels = state.channels.map((c) =>
+          c.channel_id === p.channel_id
+            ? { ...c, ...(p.name ? { name: p.name } : {}), ...(p.topic !== undefined ? { topic: p.topic } : {}) }
+            : c,
+        );
+      }
+      if (event.type === "channel.archived") {
+        const p = event.payload as { channel_id: string };
+        next.channels = state.channels.filter((c) => c.channel_id !== p.channel_id);
+      }
+      if (event.type === "message.deleted") {
+        const p = event.payload as { message_event_id: string };
+        next.deleted = { ...state.deleted, [p.message_event_id]: true };
+      }
+
+      const channelId = channelOf(event.stream);
+      if (channelId !== null && event.visibility === "company") {
         next.timelines = {
           ...next.timelines,
-          [channelId]: mergeEvents(state.timelines[channelId] ?? [], [
-            action.event,
-          ]),
+          [channelId]: mergeEvents(state.timelines[channelId] ?? [], [event]),
         };
       }
-      if (
-        action.event.stream.startsWith("task:") &&
-        action.event.visibility === "company"
-      ) {
-        const taskId = action.event.stream.slice(5);
+      if (event.stream.startsWith("task:") && event.visibility === "company") {
+        const taskId = event.stream.slice(5);
         next.taskTimelines = {
           ...next.taskTimelines,
-          [taskId]: mergeEvents(state.taskTimelines[taskId] ?? [], [
-            action.event,
-          ]),
+          [taskId]: mergeEvents(state.taskTimelines[taskId] ?? [], [event]),
         };
       }
       return next;
@@ -229,10 +247,7 @@ function reducer(state: State, action: Action): State {
     case "pending_add":
       return { ...state, pending: [...state.pending, action.message] };
     case "pending_resolve":
-      return {
-        ...state,
-        pending: state.pending.filter((p) => p.tempId !== action.tempId),
-      };
+      return { ...state, pending: state.pending.filter((p) => p.tempId !== action.tempId) };
     case "pending_failed":
       return {
         ...state,
@@ -249,15 +264,39 @@ function initialView(): View {
   if (path === "/dev/gallery") return { kind: "gallery" };
   if (path === "/approvals") return { kind: "approvals" };
   if (path === "/treasury") return { kind: "treasury" };
+  if (path === "/people") return { kind: "people" };
+  if (path === "/connections") return { kind: "connections" };
+  if (path.startsWith("/people/")) return { kind: "agent", agentId: path.slice(8) };
   if (path.startsWith("/trace/")) return { kind: "trace", runId: path.slice(7) };
   if (path === "/board") return { kind: "board" };
-  if (path.startsWith("/board/")) {
-    return { kind: "board", taskId: path.slice(7) };
-  }
-  if (path.startsWith("/c/")) {
-    return { kind: "channel", channelId: path.slice(3) };
-  }
+  if (path.startsWith("/board/")) return { kind: "board", taskId: path.slice(7) };
+  if (path.startsWith("/c/")) return { kind: "channel", channelId: path.slice(3) };
   return { kind: "channel", channelId: "general" };
+}
+
+function pathOf(view: View): string {
+  switch (view.kind) {
+    case "channel":
+      return `/c/${view.channelId}`;
+    case "board":
+      return view.taskId !== undefined ? `/board/${view.taskId}` : "/board";
+    case "approvals":
+      return "/approvals";
+    case "treasury":
+      return "/treasury";
+    case "people":
+      return "/people";
+    case "agent":
+      return `/people/${view.agentId}`;
+    case "connections":
+      return "/connections";
+    case "trace":
+      return `/trace/${view.runId}`;
+    case "log":
+      return "/log";
+    case "gallery":
+      return "/dev/gallery";
+  }
 }
 
 const initial: State = {
@@ -268,6 +307,7 @@ const initial: State = {
   connection: "connecting",
   timelines: {},
   loaded: {},
+  deleted: {},
   pending: [],
   lastSeq: 0,
   runs: {},
@@ -276,6 +316,7 @@ const initial: State = {
   tasksLoaded: false,
   approvalsPending: 0,
   taskTimelines: {},
+  toasts: [],
 };
 
 export interface Store {
@@ -301,8 +342,18 @@ export interface Store {
       status?: TaskInfo["status"];
       assignee_id?: string;
       assignee_kind?: "human" | "agent";
+      title?: string;
+      body?: string;
+      priority?: TaskPriority;
     },
   ) => Promise<void>;
+  deleteTask: (task: TaskInfo) => Promise<void>;
+  commentTask: (taskId: string, body: string) => Promise<void>;
+  createChannel: (name: string, topic?: string) => Promise<string | null>;
+  archiveChannel: (channelId: string) => Promise<void>;
+  deleteMessage: (channelId: string, eventId: string) => Promise<void>;
+  toast: (text: string, tone?: Toast["tone"], undo?: () => void) => void;
+  dismissToast: (id: string) => void;
 }
 
 const StoreContext = createContext<Store | null>(null);
@@ -313,37 +364,33 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let disconnect = () => {};
     let cancelled = false;
+    const refreshRoster = () =>
+      void api
+        .bootstrap()
+        .then((d) => dispatch({ t: "roster", roster: d.roster }))
+        .catch(() => {});
+    const refreshTasks = () =>
+      void api.tasks().then(({ tasks }) => dispatch({ t: "tasks", tasks })).catch(() => {});
+    const refreshApprovals = () =>
+      void api
+        .approvals("pending")
+        .then(({ approvals }) => dispatch({ t: "approvals_pending", count: approvals.length }))
+        .catch(() => {});
+
     void api
       .bootstrap()
       .then((data) => {
         if (cancelled) return;
         dispatch({ t: "bootstrap", data });
-        void api
-          .approvals("pending")
-          .then(({ approvals }) =>
-            dispatch({ t: "approvals_pending", count: approvals.length }),
-          )
-          .catch(() => {});
+        refreshApprovals();
         disconnect = connectEvents({
-          // Replay from 0 on first connect: the whole record is the app state.
           after: 0,
           onEvent: (event) => {
             dispatch({ t: "event", event });
-            // Task projections carry server-derived fields (task_num) —
-            // refetch the list when task state changes.
-            if (event.type.startsWith("task.")) {
-              void api
-                .tasks()
-                .then(({ tasks }) => dispatch({ t: "tasks", tasks }))
-                .catch(() => {});
-            }
-            if (event.type.startsWith("approval.")) {
-              void api
-                .approvals("pending")
-                .then(({ approvals }) =>
-                  dispatch({ t: "approvals_pending", count: approvals.length }),
-                )
-                .catch(() => {});
+            if (event.type.startsWith("task.")) refreshTasks();
+            if (event.type.startsWith("approval.")) refreshApprovals();
+            if (event.type.startsWith("agent.hired") || event.type.startsWith("agent.paused") || event.type.startsWith("agent.resumed")) {
+              refreshRoster();
             }
           },
           onStatus: (status) => dispatch({ t: "connection", status }),
@@ -358,67 +405,94 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const store = useMemo<Store>(() => {
     const navigate = (view: View) => {
-      const path =
-        view.kind === "channel"
-          ? `/c/${view.channelId}`
-          : view.kind === "board"
-            ? view.taskId !== undefined
-              ? `/board/${view.taskId}`
-              : "/board"
-            : view.kind === "approvals"
-              ? "/approvals"
-              : view.kind === "treasury"
-                ? "/treasury"
-                : view.kind === "trace"
-                ? `/trace/${view.runId}`
-                : view.kind === "log"
-                  ? "/log"
-                  : "/dev/gallery";
-      window.history.pushState(null, "", path);
+      window.history.pushState(null, "", pathOf(view));
       dispatch({ t: "view", view });
+    };
+    const toast = (text: string, tone: Toast["tone"] = "default", undo?: () => void) => {
+      const id = `t_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      dispatch({ t: "toast", toast: { id, text, tone, ...(undo ? { undo } : {}) } });
+    };
+    const refetchTasks = async () => {
+      const { tasks } = await api.tasks();
+      dispatch({ t: "tasks", tasks });
     };
     return {
       state,
       navigate,
+      toast,
+      dismissToast: (id) => dispatch({ t: "toast_dismiss", id }),
       openChannel: (channelId) => navigate({ kind: "channel", channelId }),
       ensureTimeline: (channelId) => {
         if (state.loaded[channelId]) return;
-        void api.timeline(channelId).then(({ events }) => {
-          dispatch({ t: "timeline", channelId, events });
-        });
+        void api.timeline(channelId).then(({ events }) =>
+          dispatch({ t: "timeline", channelId, events }),
+        );
       },
       ensureTasks: () => {
         if (state.tasksLoaded) return;
         void api.tasks().then(({ tasks }) => dispatch({ t: "tasks", tasks }));
       },
-      refreshTasks: () => {
-        void api.tasks().then(({ tasks }) => dispatch({ t: "tasks", tasks }));
-      },
+      refreshTasks: () => void refetchTasks(),
       ensureTaskTimeline: (taskId) => {
-        void api.taskTimeline(taskId).then(({ events }) => {
-          dispatch({ t: "task_timeline", taskId, events });
-        });
+        void api.taskTimeline(taskId).then(({ events }) =>
+          dispatch({ t: "task_timeline", taskId, events }),
+        );
       },
       createTask: async (input) => {
         await api.createTask(input);
-        const { tasks } = await api.tasks();
-        dispatch({ t: "tasks", tasks });
+        await refetchTasks();
       },
       patchTask: async (taskId, patch) => {
         await api.patchTask(taskId, patch);
-        const { tasks } = await api.tasks();
-        dispatch({ t: "tasks", tasks });
+        await refetchTasks();
+      },
+      deleteTask: async (task) => {
+        await api.deleteTask(task.task_id);
+        await refetchTasks();
+        toast(`CH-${task.task_num} deleted`, "danger", () => {
+          void api
+            .createTask({
+              title: task.title,
+              ...(task.body ? { body: task.body } : {}),
+              ...(task.assignee_id && task.assignee_kind
+                ? { assignee_id: task.assignee_id, assignee_kind: task.assignee_kind }
+                : {}),
+            })
+            .then(refetchTasks);
+        });
+      },
+      commentTask: async (taskId, body) => {
+        const { event } = await api.taskComment(taskId, body);
+        dispatch({ t: "event", event });
+      },
+      createChannel: async (name, topic) => {
+        try {
+          const { channel_id } = await api.createChannel(name, topic);
+          navigate({ kind: "channel", channelId: channel_id });
+          return channel_id;
+        } catch (error) {
+          toast(
+            error instanceof Error && error.message.includes("409")
+              ? "That channel already exists"
+              : "Couldn't create channel",
+            "danger",
+          );
+          return null;
+        }
+      },
+      archiveChannel: async (channelId) => {
+        await api.archiveChannel(channelId);
+        toast(`#${channelId} archived`, "default");
+        navigate({ kind: "channel", channelId: "general" });
+      },
+      deleteMessage: async (channelId, eventId) => {
+        await api.deleteMessage(channelId, eventId);
       },
       sendMessage: async (channelId, body) => {
         const tempId = `tmp_${Date.now()}_${Math.random().toString(36).slice(2)}`;
         dispatch({
           t: "pending_add",
-          message: {
-            tempId,
-            channelId,
-            body,
-            at: new Date().toISOString(),
-          },
+          message: { tempId, channelId, body, at: new Date().toISOString() },
         });
         try {
           const { event } = await api.postMessage(channelId, body);

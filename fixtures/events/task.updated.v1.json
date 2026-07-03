@@ -1,0 +1,1 @@
+{ "type": "task.updated", "payload": { "task_id": "tsk_01", "title": "New title", "body": "Edited body", "priority": "high" } }

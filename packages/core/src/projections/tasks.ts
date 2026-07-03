@@ -3,12 +3,14 @@ import type { Projector } from "./types.js";
 
 export const tasksProjector: Projector = {
   name: "tasks",
-  version: 1,
+  version: 2,
   types: [
     "task.created",
     "task.assigned",
     "task.status_changed",
     "task.pr_opened",
+    "task.updated",
+    "task.deleted",
   ],
   apply(db, event) {
     switch (event.type) {
@@ -60,6 +62,36 @@ export const tasksProjector: Projector = {
           `UPDATE tasks SET pr_number = ?, pr_url = ?, branch = ?, updated_at = ?
            WHERE task_id = ?`,
         ).run(p.pr_number, p.pr_url, p.branch, event.created_at, p.task_id);
+        break;
+      }
+      case "task.updated": {
+        const p = event.payload as EventPayload<"task.updated">;
+        const sets: string[] = [];
+        const vals: unknown[] = [];
+        if (p.title !== undefined) {
+          sets.push("title = ?");
+          vals.push(p.title);
+        }
+        if (p.body !== undefined) {
+          sets.push("body = ?");
+          vals.push(p.body);
+        }
+        if (p.priority !== undefined) {
+          sets.push("priority = ?");
+          vals.push(p.priority);
+        }
+        if (sets.length === 0) break;
+        sets.push("updated_at = ?");
+        vals.push(event.created_at, p.task_id);
+        db.prepare(
+          `UPDATE tasks SET ${sets.join(", ")} WHERE task_id = ?`,
+        ).run(...(vals as never[]));
+        break;
+      }
+      case "task.deleted": {
+        const p = event.payload as EventPayload<"task.deleted">;
+        // Idempotent tombstone: delete-if-exists replays cleanly on rebuild.
+        db.prepare("DELETE FROM tasks WHERE task_id = ?").run(p.task_id);
         break;
       }
     }

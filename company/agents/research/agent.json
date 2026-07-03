@@ -1,6 +1,6 @@
 {
-  "name": "Scout",
-  "role": "Research & Q&A",
+  "name": "Research",
+  "role": "Research & analysis",
   "model": "sonnet",
   "max_turns": 8,
   "daily_runs": 30,

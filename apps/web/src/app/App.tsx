@@ -35,7 +35,7 @@ function Booted() {
   if (state.phase === "error") {
     return (
       <Centered>
-        <h1 className="font-serif text-xl text-text-1">Charter</h1>
+        <h1 className="font-serif text-xl text-text-1">Keelson</h1>
         <p className="mt-3 max-w-md text-text-2">
           Couldn't reach charterd, or the token was rejected. Start the daemon
           and reopen the printed URL:

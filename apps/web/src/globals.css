@@ -1,38 +1,40 @@
 @import "tailwindcss";
 
 /**
- * Charter design tokens — "The Book of Record".
+ * Keelson design tokens — "The Book of Record".
  * THE single source of truth. A hex code anywhere else in apps/web is a bug
- * (CLAUDE.md UI rule 1). Hairlines instead of boxes; brass used like a
- * notary's seal; mono for every datum; serif only for charter documents.
+ * (CLAUDE.md UI rule 1). Hairlines over boxes; brass is a notary's seal
+ * (focus + authority only, never a theme color); mono for every datum;
+ * serif for charter/policy documents.
  */
 @theme {
-  --color-bg-0: #0c0e12;
-  --color-bg-1: #12151b;
-  --color-bg-2: #191d25;
-  --color-bg-3: #21262f;
-  --color-line-1: #262b34;
-  --color-line-2: #343b47;
-  --color-text-1: #e8eaf0;
-  --color-text-2: #9ba3b0;
-  --color-text-3: #5f6875;
-  --color-accent: #d9a03f;
+  --color-bg-0: #0b0d11;
+  --color-bg-1: #101319;
+  --color-bg-2: #171b22;
+  --color-bg-3: #1f242d;
+  --color-bg-4: #272d38;
+  --color-line-1: #23282f;
+  --color-line-2: #333a45;
+  --color-text-1: #eaecf2;
+  --color-text-2: #9aa2af;
+  --color-text-3: #626b78;
+  --color-accent: #e0a94a;
   --color-accent-dim: #8a6a2f;
-  --color-accent-ink: #141414;
-  --color-ok: #3fb27f;
-  --color-danger: #e5534b;
+  --color-accent-ink: #120f08;
+  --color-ok: #46b784;
+  --color-danger: #e5574d;
   --color-warn: #d9822b;
-  --color-info: #4c8de0;
+  --color-info: #5b93e0;
 
-  /* 8-hue desaturated agent ramp: avatar rings + provenance rails */
-  --color-agent-1: #7a8cd9;
-  --color-agent-2: #5fa8a0;
-  --color-agent-3: #b07ac9;
-  --color-agent-4: #c98a7a;
-  --color-agent-5: #8fb06a;
-  --color-agent-6: #c9b46a;
-  --color-agent-7: #6aa8c9;
-  --color-agent-8: #c96a94;
+  /* 8-hue agent ramp: each agent maps to one stable hue (rail + name + ring) */
+  --color-agent-1: #7f90dd;
+  --color-agent-2: #59ada2;
+  --color-agent-3: #b57fce;
+  --color-agent-4: #d0917d;
+  --color-agent-5: #93b56d;
+  --color-agent-6: #cdb85f;
+  --color-agent-7: #63acce;
+  --color-agent-8: #ce6f98;
 
   --font-sans: "IBM Plex Sans", -apple-system, "Segoe UI", sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", monospace;
@@ -44,7 +46,16 @@
 
   --motion-fast: 120ms;
   --motion-med: 160ms;
-  --motion-slow: 200ms;
+  --motion-slow: 220ms;
+
+  /* Elevation scale — every raised surface pairs a shadow with a 1px top
+     highlight so it catches light instead of relying on bg color alone. */
+  --shadow-1:
+    0 1px 2px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  --shadow-2:
+    0 6px 20px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --shadow-3:
+    0 18px 50px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 :root {
@@ -64,6 +75,7 @@ body {
   font-size: 13px;
   line-height: 20px;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 /* Data numerals are always tabular (UI rule 4) */
@@ -71,20 +83,97 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* The accent focus ring, everywhere (UI rule 6) */
+/* ---- Focus policy, ONE way (UI craft rule 1) ---------------------------
+   Buttons / nav / cards get the brass ring. Text fields own their focus via
+   their wrapper, so they opt OUT of the global ring. This override is
+   unlayered AND later in source than the ring below, so it wins the cascade
+   tie against the unlayered :focus-visible (the cause of the doubled border). */
 :focus-visible {
   outline: 2px solid var(--color-accent);
-  outline-offset: -1px;
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+input:focus,
+input:focus-visible,
+textarea:focus,
+textarea:focus-visible,
+select:focus,
+select:focus-visible,
+[contenteditable]:focus,
+[contenteditable]:focus-visible {
+  outline: none;
 }
 
 ::selection {
-  background: color-mix(in srgb, var(--color-accent) 30%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 28%, transparent);
 }
 
-/* Scrollbars in keeping with the record */
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--color-line-2) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-line-2);
+  border-radius: 6px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+/* ---- Motion ------------------------------------------------------------ */
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+@keyframes drawer-in {
+  from {
+    transform: translateX(12px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+.animate-overlay {
+  animation: overlay-in var(--motion-fast) ease-out;
+}
+.animate-pop {
+  animation: pop-in var(--motion-med) cubic-bezier(0.16, 1, 0.3, 1);
+}
+.animate-drawer {
+  animation: drawer-in var(--motion-med) cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* The only ambient animation permitted: a live agent's presence ring. */
+@keyframes presence-breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.presence-live {
+  animation: presence-breathe 2s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -92,17 +181,7 @@ body {
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
-  }
-}
-
-/* The only ambient animation permitted: the agent presence ring */
-@keyframes presence-breathe {
-  0%,
-  100% {
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 35%, transparent);
-  }
-  50% {
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 70%, transparent);
   }
 }

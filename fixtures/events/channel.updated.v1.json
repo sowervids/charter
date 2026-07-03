@@ -1,0 +1,1 @@
+{ "type": "channel.updated", "payload": { "channel_id": "general", "name": "general", "topic": "New topic" } }

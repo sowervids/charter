@@ -1,0 +1,1 @@
+{ "type": "agent.hired", "payload": { "agent_id": "ops", "name": "Operations", "role": "Operations", "model": "sonnet" } }

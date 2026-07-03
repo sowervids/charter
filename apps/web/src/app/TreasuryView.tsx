@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { Landmark, RefreshCw } from "lucide-react";
+import { Landmark, Plus, RefreshCw } from "lucide-react";
 import { getToken } from "../lib/api.js";
 import { useStore } from "../lib/store.js";
+import { Dialog } from "./Dialog.js";
 
 interface Balance {
   account_id: string;
@@ -57,6 +58,7 @@ export function TreasuryView() {
   } | null>(null);
   const [error, setError] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [proposing, setProposing] = useState(false);
 
   const refresh = useCallback(() => {
     ledgerFetch<NonNullable<typeof data>>("/api/ledger/summary")
@@ -95,14 +97,30 @@ export function TreasuryView() {
         </span>
         <button
           type="button"
+          onClick={() => setProposing(true)}
+          className="ml-auto flex items-center gap-1.5 rounded-sm border border-line-1 bg-bg-2 px-2.5 py-1 text-[12px] text-text-2 transition-colors duration-(--motion-fast) hover:border-line-2 hover:text-text-1"
+        >
+          <Plus size={13} strokeWidth={1.5} /> New proposal
+        </button>
+        <button
+          type="button"
           onClick={() => void sync()}
           disabled={syncing}
-          className="ml-auto flex items-center gap-1.5 rounded-sm border border-line-1 bg-bg-2 px-2.5 py-1 text-[12px] text-text-2 transition-colors duration-(--motion-fast) hover:border-line-2 hover:text-text-1 disabled:opacity-40"
+          className="flex items-center gap-1.5 rounded-sm border border-line-1 bg-bg-2 px-2.5 py-1 text-[12px] text-text-2 transition-colors duration-(--motion-fast) hover:border-line-2 hover:text-text-1 disabled:opacity-40"
         >
           <RefreshCw size={13} strokeWidth={1.5} className={syncing ? "animate-spin" : ""} />
           Sync banks
         </button>
       </header>
+      {proposing && (
+        <ProposalDialog
+          onClose={() => setProposing(false)}
+          onSubmit={async (counterparty, amount_cents, memo) => {
+            await act("/api/ledger/proposals", { counterparty, amount_cents, memo });
+            setProposing(false);
+          }}
+        />
+      )}
 
       <div className="flex-1 overflow-y-auto px-6 py-4">
         {error && (
@@ -249,6 +267,43 @@ export function TreasuryView() {
         )}
       </div>
     </>
+  );
+}
+
+function ProposalDialog({
+  onClose,
+  onSubmit,
+}: {
+  onClose: () => void;
+  onSubmit: (counterparty: string, amountCents: number, memo: string) => void;
+}) {
+  const [counterparty, setCounterparty] = useState("");
+  const [amount, setAmount] = useState("");
+  const [memo, setMemo] = useState("");
+  const cents = Math.round(Number(amount) * 100);
+  const valid = counterparty.trim() && cents > 0 && memo.trim();
+  return (
+    <Dialog
+      title="Propose a payment"
+      onClose={onClose}
+      onSubmit={() => valid && onSubmit(counterparty.trim(), cents, memo.trim())}
+      submitLabel="Propose"
+      submitDisabled={!valid}
+    >
+      <div className="mb-3">
+        <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.08em] text-text-3">Counterparty</div>
+        <input autoFocus value={counterparty} onChange={(e) => setCounterparty(e.target.value)} placeholder="Vercel Inc" className="w-full rounded-sm border border-line-1 bg-bg-2 px-2.5 py-1.5 text-[13px] text-text-1 has-[:focus]:border-accent-dim placeholder:text-text-3" />
+      </div>
+      <div className="mb-3">
+        <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.08em] text-text-3">Amount (USD)</div>
+        <input value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} inputMode="decimal" placeholder="20.00" className="w-full rounded-sm border border-line-1 bg-bg-2 px-2.5 py-1.5 font-mono text-[13px] text-text-1 has-[:focus]:border-accent-dim placeholder:text-text-3" />
+      </div>
+      <div className="mb-3">
+        <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.08em] text-text-3">Memo</div>
+        <input value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="Hosting, July" className="w-full rounded-sm border border-line-1 bg-bg-2 px-2.5 py-1.5 text-[12px] text-text-1 has-[:focus]:border-accent-dim placeholder:text-text-3" />
+      </div>
+      <p className="font-mono text-[10px] text-text-3">Proposals are drafts. You execute in your real bank, then “I sent it” — the next sync verifies it.</p>
+    </Dialog>
   );
 }
 

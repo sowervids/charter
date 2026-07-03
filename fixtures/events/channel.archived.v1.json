@@ -1,0 +1,1 @@
+{ "type": "channel.archived", "payload": { "channel_id": "old-channel" } }

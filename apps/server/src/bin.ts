@@ -44,15 +44,19 @@ const bankSources = [
 ];
 
 const { loadRegistry } = await import("@charter/agents");
+const { registerAgents, computeRoster } = await import("./agentRoutes.js");
 const registry = loadRegistry(root);
+// Hot reload: re-read files into the SAME Map so both the routes and the
+// orchestrator (which hold this reference) see hired agents without restart.
+const reloadRegistry = () => {
+  const fresh = loadRegistry(root);
+  registry.clear();
+  for (const [id, cfg] of fresh) registry.set(id, cfg);
+};
 const app = buildServer(ctx, {
-  roster: [...registry.values()].map((agent) => ({
-    id: agent.id,
-    name: agent.name,
-    role: agent.role,
-    kind: "agent" as const,
-  })),
+  getRoster: () => computeRoster(ctx, registry),
 });
+registerAgents(app, ctx, { registry, root, reload: reloadRegistry });
 
 // Serve the built web app when it exists (production mode). In dev, Vite
 // serves the UI and proxies /api here.
@@ -69,6 +73,50 @@ if (existsSync(webDist)) {
 }
 
 registerLedger(app, ctx, bankSources);
+
+app.get("/api/connections", () => ({
+  connections: [
+    {
+      id: "runtime",
+      name: "Claude runtime",
+      kind: "runtime",
+      status: "connected",
+      detail: "headless claude -p on your Max subscription",
+    },
+    {
+      id: "repo",
+      name: "Repository",
+      kind: "code",
+      status: existsSync(join(root, ".git")) ? "connected" : "degraded",
+      detail: "agents open PRs on agent/* branches; humans merge",
+    },
+    {
+      id: "stripe",
+      name: "Stripe",
+      kind: "bank",
+      status: secrets["STRIPE_API_KEY"] ? "connected" : "not_configured",
+      detail: secrets["STRIPE_API_KEY"]
+        ? "read-only balance transactions"
+        : "add STRIPE_API_KEY to var/secrets.env",
+    },
+    {
+      id: "mercury",
+      name: "Mercury",
+      kind: "bank",
+      status: secrets["MERCURY_API_TOKEN"] ? "connected" : "not_configured",
+      detail: secrets["MERCURY_API_TOKEN"]
+        ? "read-only transactions"
+        : "add MERCURY_API_TOKEN to var/secrets.env",
+    },
+    {
+      id: "mock-bank",
+      name: "Mock bank",
+      kind: "bank",
+      status: bankSources.some((s) => s.source === "mock") ? "connected" : "not_configured",
+      detail: "fixture stand-in for Treasury until real keys land",
+    },
+  ],
+}));
 
 await app.listen({ port: PORT, host: "127.0.0.1" });
 console.log(

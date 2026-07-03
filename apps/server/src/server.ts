@@ -10,11 +10,29 @@ import type { ServerContext } from "./env.js";
 const SSE_HEARTBEAT_MS = 25_000;
 const TIMELINE_LIMIT = 200;
 
+const TASK_STATUSES = new Set([
+  "triage",
+  "todo",
+  "doing",
+  "review",
+  "done",
+  "dropped",
+]);
+
 interface ChannelRow {
   channel_id: string;
   name: string;
   topic: string | null;
   created_at: string;
+}
+
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
 }
 
 function bearerOf(request: FastifyRequest): string | null {
@@ -36,12 +54,13 @@ export interface RosterEntry {
 
 export function buildServer(
   ctx: ServerContext,
-  options: { roster?: RosterEntry[] } = {},
+  options: { getRoster?: () => RosterEntry[] } = {},
 ): FastifyInstance {
-  const roster: RosterEntry[] = [
-    { id: "founder", name: "Founder", role: "Founder", kind: "human" },
-    ...(options.roster ?? []),
-  ];
+  const getRoster =
+    options.getRoster ??
+    (() => [
+      { id: "founder", name: "Founder", role: "Founder", kind: "human" as const },
+    ]);
   const app = Fastify({ logger: false });
 
   // Host-header check: defeats DNS-rebinding access to the loopback API.
@@ -82,13 +101,13 @@ export function buildServer(
     const channels = ctx.db
       .prepare(
         `SELECT channel_id, name, topic, created_at FROM channels
-          WHERE company_id = ? ORDER BY name`,
+          WHERE company_id = ? AND archived_at IS NULL ORDER BY created_at`,
       )
       .all(ctx.company.id) as ChannelRow[];
     return {
       company: ctx.company,
       channels,
-      roster,
+      roster: getRoster(),
       lastSeq: ctx.log.lastSeq(),
     };
   });
@@ -125,23 +144,83 @@ export function buildServer(
 
   app.post("/api/channels", (request, reply) => {
     const body = request.body as {
-      channel_id?: unknown;
       name?: unknown;
+      channel_id?: unknown;
       topic?: unknown;
     };
-    if (typeof body?.channel_id !== "string" || typeof body?.name !== "string") {
-      return reply.code(400).send({ error: "channel_id and name required" });
+    if (typeof body?.name !== "string" || body.name.trim().length === 0) {
+      return reply.code(400).send({ error: "name required" });
+    }
+    const channelId =
+      typeof body.channel_id === "string" && body.channel_id
+        ? slugify(body.channel_id)
+        : slugify(body.name);
+    if (channelId.length === 0) {
+      return reply.code(400).send({ error: "name has no url-safe characters" });
+    }
+    const exists = ctx.db
+      .prepare("SELECT 1 FROM channels WHERE company_id = ? AND channel_id = ?")
+      .get(ctx.company.id, channelId);
+    if (exists) {
+      return reply.code(409).send({ error: `#${channelId} already exists` });
     }
     const event = ctx.log.append({
       company_id: ctx.company.id,
-      stream: channelStream(body.channel_id),
+      stream: channelStream(channelId),
       type: "channel.created",
       actor: { kind: "human", id: "founder" },
       payload: {
-        channel_id: body.channel_id,
-        name: body.name,
-        ...(typeof body.topic === "string" ? { topic: body.topic } : {}),
+        channel_id: channelId,
+        name: slugify(body.name),
+        ...(typeof body.topic === "string" && body.topic.trim()
+          ? { topic: body.topic }
+          : {}),
       },
+    });
+    return { event, channel_id: channelId };
+  });
+
+  app.patch("/api/channels/:id", (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as { name?: unknown; topic?: unknown };
+    const patch: { name?: string; topic?: string } = {};
+    if (typeof body.name === "string" && body.name.trim()) {
+      patch.name = slugify(body.name);
+    }
+    if (typeof body.topic === "string") patch.topic = body.topic;
+    if (Object.keys(patch).length === 0) {
+      return reply.code(400).send({ error: "nothing to update" });
+    }
+    const event = ctx.log.append({
+      company_id: ctx.company.id,
+      stream: channelStream(id),
+      type: "channel.updated",
+      actor: { kind: "human", id: "founder" },
+      payload: { channel_id: id, ...patch },
+    });
+    return { event };
+  });
+
+  app.post("/api/channels/:id/archive", (request) => {
+    const { id } = request.params as { id: string };
+    const event = ctx.log.append({
+      company_id: ctx.company.id,
+      stream: channelStream(id),
+      type: "channel.archived",
+      actor: { kind: "human", id: "founder" },
+      payload: { channel_id: id },
+    });
+    return { event };
+  });
+
+  app.delete("/api/channels/:id/messages/:eventId", (request) => {
+    const { id, eventId } = request.params as { id: string; eventId: string };
+    const event = ctx.log.append({
+      company_id: ctx.company.id,
+      stream: channelStream(id),
+      type: "message.deleted",
+      actor: { kind: "human", id: "founder" },
+      payload: { message_event_id: eventId },
     });
     return { event };
   });
@@ -149,8 +228,9 @@ export function buildServer(
   app.get("/api/tasks", () => {
     const tasks = ctx.db
       .prepare(
-        `SELECT task_id, task_num, title, body, status, assignee_id,
-                assignee_kind, pr_number, pr_url, branch, created_at, updated_at
+        `SELECT task_id, task_num, title, body, status, priority, assignee_id,
+                assignee_kind, origin_event_id, pr_number, pr_url, branch,
+                created_at, updated_at
            FROM tasks WHERE company_id = ? ORDER BY task_num DESC`,
       )
       .all(ctx.company.id);
@@ -222,9 +302,23 @@ export function buildServer(
       status?: unknown;
       assignee_id?: unknown;
       assignee_kind?: unknown;
+      title?: unknown;
+      body?: unknown;
+      priority?: unknown;
     };
+    const current = ctx.db
+      .prepare("SELECT assignee_id FROM tasks WHERE task_id = ? AND company_id = ?")
+      .get(id, ctx.company.id) as { assignee_id: string | null } | undefined;
+    if (current === undefined) {
+      return reply.code(404).send({ error: "task not found" });
+    }
+
     const events: CommittedEvent[] = [];
+
     if (typeof body.status === "string") {
+      if (!TASK_STATUSES.has(body.status)) {
+        return reply.code(400).send({ error: `invalid status "${body.status}"` });
+      }
       events.push(
         ctx.log.append({
           company_id: ctx.company.id,
@@ -235,9 +329,12 @@ export function buildServer(
         }),
       );
     }
+
+    // Reassign dedup: only append (and re-trigger) when the assignee changes.
     if (
       typeof body.assignee_id === "string" &&
-      (body.assignee_kind === "human" || body.assignee_kind === "agent")
+      (body.assignee_kind === "human" || body.assignee_kind === "agent") &&
+      body.assignee_id !== current.assignee_id
     ) {
       events.push(
         ctx.log.append({
@@ -253,10 +350,69 @@ export function buildServer(
         }),
       );
     }
+
+    const update: { title?: string; body?: string; priority?: "none" | "low" | "med" | "high" | "urgent" } = {};
+    if (typeof body.title === "string" && body.title.trim()) {
+      update.title = body.title.trim();
+    }
+    if (typeof body.body === "string") update.body = body.body;
+    if (
+      body.priority === "none" ||
+      body.priority === "low" ||
+      body.priority === "med" ||
+      body.priority === "high" ||
+      body.priority === "urgent"
+    ) {
+      update.priority = body.priority;
+    }
+    if (Object.keys(update).length > 0) {
+      events.push(
+        ctx.log.append({
+          company_id: ctx.company.id,
+          stream: `task:${id}`,
+          type: "task.updated",
+          actor: { kind: "human", id: "founder" },
+          payload: { task_id: id, ...update },
+        }),
+      );
+    }
+
     if (events.length === 0) {
       return reply.code(400).send({ error: "nothing to update" });
     }
     return { events };
+  });
+
+  app.delete("/api/tasks/:id", (request, reply) => {
+    const { id } = request.params as { id: string };
+    const exists = ctx.db
+      .prepare("SELECT 1 FROM tasks WHERE task_id = ? AND company_id = ?")
+      .get(id, ctx.company.id);
+    if (!exists) return reply.code(404).send({ error: "task not found" });
+    const event = ctx.log.append({
+      company_id: ctx.company.id,
+      stream: `task:${id}`,
+      type: "task.deleted",
+      actor: { kind: "human", id: "founder" },
+      payload: { task_id: id },
+    });
+    return { event };
+  });
+
+  app.post("/api/tasks/:id/comments", (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as { body?: unknown };
+    if (typeof body?.body !== "string" || body.body.trim().length === 0) {
+      return reply.code(400).send({ error: "body must be a non-empty string" });
+    }
+    const event = ctx.log.append({
+      company_id: ctx.company.id,
+      stream: `task:${id}`,
+      type: "message.posted",
+      actor: { kind: "human", id: "founder" },
+      payload: { body: body.body },
+    });
+    return { event };
   });
 
   app.get("/api/tasks/:id/timeline", (request) => {

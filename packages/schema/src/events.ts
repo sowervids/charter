@@ -83,6 +83,44 @@ export const EVENT_PAYLOADS = {
     pr_url: z.string().min(1),
     branch: z.string().min(1),
   }),
+  "task.updated": z.object({
+    task_id: z.string().min(1),
+    title: z.string().min(1).max(200).optional(),
+    body: z.string().max(20_000).optional(),
+    priority: z.enum(["none", "low", "med", "high", "urgent"]).optional(),
+  }),
+  "task.deleted": z.object({
+    task_id: z.string().min(1),
+  }),
+
+  /** ---- Channel mutations ---- */
+  "channel.updated": z.object({
+    channel_id: z.string().min(1),
+    name: z.string().min(1).max(80).optional(),
+    topic: z.string().max(500).optional(),
+  }),
+  "channel.archived": z.object({
+    channel_id: z.string().min(1),
+  }),
+
+  /** ---- Message mutations (client folds; original stays on the log) ---- */
+  "message.deleted": z.object({
+    message_event_id: z.string().min(1),
+  }),
+
+  /** ---- Agent lifecycle (roster is file-backed; these track state) ---- */
+  "agent.hired": z.object({
+    agent_id: z.string().min(1),
+    name: z.string().min(1),
+    role: z.string().min(1),
+    model: z.string().min(1),
+  }),
+  "agent.paused": z.object({
+    agent_id: z.string().min(1),
+  }),
+  "agent.resumed": z.object({
+    agent_id: z.string().min(1),
+  }),
 
   /** ---- Ledger (stream: ledger) — double-entry, mirror mode ---- */
   "ledger.account_opened": z.object({
