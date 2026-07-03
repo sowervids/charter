@@ -4,6 +4,7 @@ import {
   newTaskId,
   type CommittedEvent,
 } from "@charter/schema";
+import { registerEnforcement } from "./enforcement.js";
 import type { ServerContext } from "./env.js";
 
 const SSE_HEARTBEAT_MS = 25_000;
@@ -68,6 +69,8 @@ export function buildServer(
     }
     done();
   });
+
+  registerEnforcement(app, ctx);
 
   app.get("/api/health", () => ({
     ok: true,

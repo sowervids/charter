@@ -64,6 +64,7 @@ if (process.env["CHARTER_AGENTS"] !== "0") {
       runtime: new ClaudeCliRuntime(),
       agentsHome: join(root, "agents-home"),
       repoRoot: root,
+      hookUrl: `http://127.0.0.1:${PORT}/hooks/pretooluse?token=${ctx.token}`,
     });
     orchestrator.start();
     console.log(

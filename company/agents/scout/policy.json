@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "rules": {
+    "deny": [],
+    "approval_required": [],
+    "allow": []
+  }
+}

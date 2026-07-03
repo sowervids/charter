@@ -131,4 +131,28 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE agent_runs ADD COLUMN task_id TEXT;
     `,
   },
+  {
+    version: 6,
+    name: "approvals_projection",
+    sql: `
+      CREATE TABLE approvals (
+        approval_id   TEXT PRIMARY KEY,
+        company_id    TEXT NOT NULL,
+        run_id        TEXT NOT NULL,
+        agent_id      TEXT NOT NULL,
+        tool          TEXT NOT NULL,
+        input_summary TEXT NOT NULL,
+        payload_hash  TEXT NOT NULL,
+        rule          TEXT NOT NULL,
+        status        TEXT NOT NULL CHECK (status IN
+          ('pending','allowed','denied','consumed','expired')),
+        note          TEXT,
+        expires_at    TEXT NOT NULL,
+        requested_at  TEXT NOT NULL,
+        updated_at    TEXT NOT NULL
+      );
+      CREATE INDEX ix_approvals_status ON approvals (company_id, status, requested_at);
+      CREATE INDEX ix_approvals_hash   ON approvals (company_id, payload_hash, status);
+    `,
+  },
 ];

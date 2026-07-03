@@ -84,6 +84,27 @@ export const EVENT_PAYLOADS = {
     branch: z.string().min(1),
   }),
 
+  /** ---- Approvals (stream: approval:<id>) ---- */
+  "approval.requested": z.object({
+    approval_id: z.string().min(1),
+    run_id: z.string().min(1),
+    agent_id: z.string().min(1),
+    tool: z.string().min(1),
+    input_summary: z.string().max(2000),
+    /** sha256(canonicalJson({tool, input})) — approvals are payload-scoped */
+    payload_hash: z.string().length(64),
+    rule: z.string().min(1),
+    expires_at: z.string().min(1),
+  }),
+  "approval.resolved": z.object({
+    approval_id: z.string().min(1),
+    decision: z.enum(["allow", "deny"]),
+    note: z.string().max(2000).optional(),
+  }),
+  "approval.consumed": z.object({
+    approval_id: z.string().min(1),
+  }),
+
   /** ---- Agent run journal (stream: agent:<id>) ---- */
   "agent.run_queued": z.object({
     run_id: z.string().min(1),
@@ -94,6 +115,10 @@ export const EVENT_PAYLOADS = {
     /** additive (v2): task-execution runs — omitted means chat */
     kind: z.enum(["chat", "task"]).optional(),
     task_id: z.string().optional(),
+    /** additive (v3): approval-resume continuations — resumes the original
+     *  run's session with `note` as the prompt */
+    continuation_of: z.string().optional(),
+    note: z.string().max(2000).optional(),
   }),
   "agent.run_started": z.object({
     run_id: z.string().min(1),

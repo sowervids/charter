@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Command } from "cmdk";
-import { Hash, Kanban, ScrollText } from "lucide-react";
+import { Hash, Kanban, ScrollText, ShieldCheck } from "lucide-react";
 import { useStore } from "../lib/store.js";
 
 /**
@@ -68,6 +68,15 @@ export function Palette() {
           <Item onSelect={() => run(() => navigate({ kind: "board" }))}>
             <Kanban size={14} strokeWidth={1.5} className="text-text-3" />
             Board
+          </Item>
+          <Item onSelect={() => run(() => navigate({ kind: "approvals" }))}>
+            <ShieldCheck size={14} strokeWidth={1.5} className="text-text-3" />
+            Approvals
+            {state.approvalsPending > 0 && (
+              <span className="tnum ml-auto font-mono text-[10px] text-accent">
+                {state.approvalsPending}
+              </span>
+            )}
           </Item>
           <Item onSelect={() => run(() => navigate({ kind: "log" }))}>
             <ScrollText size={14} strokeWidth={1.5} className="text-text-3" />

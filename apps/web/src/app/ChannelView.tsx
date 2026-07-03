@@ -7,7 +7,7 @@ import { Composer } from "./Composer.js";
 import { DayDivider, EventRow, PendingRow, WorkingRow } from "./EventRow.js";
 
 export function ChannelView({ channelId }: { channelId: string }) {
-  const { state, ensureTimeline } = useStore();
+  const { state, ensureTimeline, navigate } = useStore();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [promoting, setPromoting] = useState<CommittedEvent | null>(null);
   const channel = state.channels.find((c) => c.channel_id === channelId);
@@ -52,7 +52,12 @@ export function ChannelView({ channelId }: { channelId: string }) {
           <section key={group.date}>
             <DayDivider date={group.date} />
             {group.events.map((event) => (
-              <EventRow key={event.id} event={event} onPromote={setPromoting} />
+              <EventRow
+                key={event.id}
+                event={event}
+                onPromote={setPromoting}
+                onTrace={(runId) => navigate({ kind: "trace", runId })}
+              />
             ))}
           </section>
         ))}

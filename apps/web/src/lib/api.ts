@@ -123,4 +123,31 @@ export const api = {
     request<{ events: CommittedEvent[] }>(
       `/api/tasks/${encodeURIComponent(taskId)}/timeline`,
     ),
+  approvals: (status = "pending") =>
+    request<{ approvals: ApprovalInfo[] }>(`/api/approvals?status=${status}`),
+  resolveApproval: (id: string, decision: "allow" | "deny", note?: string) =>
+    request<{ event: CommittedEvent }>(
+      `/api/approvals/${encodeURIComponent(id)}/resolve`,
+      { method: "POST", body: JSON.stringify({ decision, note }) },
+    ),
+  trace: (runId: string) =>
+    request<{
+      run: Record<string, unknown>;
+      trigger: CommittedEvent | null;
+      events: CommittedEvent[];
+    }>(`/api/runs/${encodeURIComponent(runId)}/trace`),
 };
+
+export interface ApprovalInfo {
+  approval_id: string;
+  run_id: string;
+  agent_id: string;
+  tool: string;
+  input_summary: string;
+  payload_hash: string;
+  rule: string;
+  status: "pending" | "allowed" | "denied" | "consumed" | "expired";
+  note: string | null;
+  expires_at: string;
+  requested_at: string;
+}

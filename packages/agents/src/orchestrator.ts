@@ -6,6 +6,7 @@ import type { Db, EventLog } from "@charter/core";
 import { Governor } from "./governor.js";
 import { buildPrompt } from "./prompt.js";
 import { extractMentions } from "./registry.js";
+import { writeHookSettings } from "./hooks.js";
 import {
   buildTaskPrompt,
   branchName,
@@ -30,6 +31,9 @@ export interface OrchestratorOptions {
   agentsHome: string;
   /** Repo root — required for task runs (worktrees live beside it). */
   repoRoot?: string;
+  /** charterd's PreToolUse hook endpoint (with token). When set, every
+   *  workspace gets the hook — the policy engine's reach into local tools. */
+  hookUrl?: string;
   concurrency?: number;
 }
 
@@ -53,6 +57,8 @@ export class Orchestrator {
   private readonly governor: Governor;
   private pumpTimer: ReturnType<typeof setInterval> | null = null;
   private unsubscribe: (() => void) | null = null;
+  /** runId → continuation info (also recoverable from run_queued payloads) */
+  private readonly continuations = new Map<string, { of: string; note: string }>();
 
   constructor(private readonly opts: OrchestratorOptions) {
     this.governor = new Governor({ concurrency: opts.concurrency ?? 1 });
@@ -107,6 +113,39 @@ export class Orchestrator {
           taskId: p.task_id,
         });
       }
+      return;
+    }
+    // Approval resolved → resume the held run's session so it can retry
+    // (approved) or adjust (denied). This is the "park costs zero prompts,
+    // resume on decision" model.
+    if (event.type === "approval.resolved") {
+      const p = event.payload as {
+        approval_id: string;
+        decision: "allow" | "deny";
+        note?: string;
+      };
+      const approval = this.opts.db
+        .prepare("SELECT run_id FROM approvals WHERE approval_id = ?")
+        .get(p.approval_id) as { run_id: string } | undefined;
+      if (approval === undefined) return;
+      const original = this.runRow(approval.run_id);
+      if (original === undefined) return;
+      const note =
+        p.decision === "allow"
+          ? `Approval ${p.approval_id} was GRANTED${p.note ? ` ("${p.note}")` : ""}. Retry the exact held action now, then continue the work to completion.`
+          : `Approval ${p.approval_id} was DENIED${p.note ? ` ("${p.note}")` : ""}. Do not retry that action. Adjust your approach and continue, or finish with what you have.`;
+      this.createRun(
+        original.agent_id,
+        original.channel_id,
+        event.id,
+        "p0",
+        {
+          kind: original.kind,
+          ...(original.task_id !== null ? { taskId: original.task_id } : {}),
+          continuationOf: original.run_id,
+          note,
+        },
+      );
     }
   }
 
@@ -115,7 +154,12 @@ export class Orchestrator {
     channelId: string,
     triggerEventId: string,
     priority: "p0" | "p1" | "p2",
-    options?: { kind: "chat" | "task"; taskId?: string },
+    options?: {
+      kind: "chat" | "task";
+      taskId?: string;
+      continuationOf?: string;
+      note?: string;
+    },
   ): string {
     const runId = newRunId();
     this.opts.log.append({
@@ -131,9 +175,19 @@ export class Orchestrator {
         priority,
         ...(options?.kind !== undefined ? { kind: options.kind } : {}),
         ...(options?.taskId !== undefined ? { task_id: options.taskId } : {}),
+        ...(options?.continuationOf !== undefined
+          ? { continuation_of: options.continuationOf }
+          : {}),
+        ...(options?.note !== undefined ? { note: options.note } : {}),
       },
       refs: [{ rel: "trigger", id: triggerEventId }],
     });
+    if (options?.continuationOf !== undefined) {
+      this.continuations.set(runId, {
+        of: options.continuationOf,
+        note: options.note ?? "Continue.",
+      });
+    }
     this.governor.enqueue({
       runId,
       agentId,
@@ -216,8 +270,11 @@ export class Orchestrator {
         return;
       }
 
-      const prep =
-        run.kind === "task"
+      const continuation = this.continuations.get(runId);
+      this.continuations.delete(runId);
+      const prep = continuation
+        ? this.prepareContinuationJob(run, agent, continuation)
+        : run.kind === "task"
           ? this.prepareTaskJob(run, agent)
           : this.prepareChatJob(run, agent);
       if (prep === null) return; // failure already journaled
@@ -309,11 +366,90 @@ export class Orchestrator {
     }
   }
 
+  /** Resume a held run's session after its approval resolved. */
+  private prepareContinuationJob(
+    run: RunRow,
+    agent: AgentConfig,
+    continuation: { of: string; note: string },
+  ): PreparedJob | null {
+    const { opts } = this;
+    const original = this.runRow(continuation.of);
+    if (original === undefined || original.session_id === null) {
+      this.fail(run.run_id, agent.id, "runtime_error", "continuation target lost");
+      return null;
+    }
+
+    if (original.kind === "task" && original.task_id !== null) {
+      const task = opts.db
+        .prepare(
+          `SELECT task_id, task_num, title, body, status, assignee_id
+             FROM tasks WHERE task_id = ?`,
+        )
+        .get(original.task_id) as TaskRow | undefined;
+      if (task === undefined || opts.repoRoot === undefined) {
+        this.fail(run.run_id, agent.id, "runtime_error", "task context lost");
+        return null;
+      }
+      const worktree = prepareWorktree(opts.repoRoot, agent, task.task_num);
+      if (opts.hookUrl !== undefined) {
+        writeHookSettings({ dir: worktree, hookUrl: opts.hookUrl, local: true });
+      }
+      return {
+        job: {
+          runId: run.run_id,
+          agent,
+          channelId: run.channel_id,
+          triggerEventId: run.trigger_event_id,
+          prompt: continuation.note,
+          cwd: worktree,
+          sessionId: original.session_id,
+          resume: true,
+          allowedTools: taskAllowedTools(),
+          maxWallMs: Math.max(agent.max_wall_ms, 20 * 60_000),
+        },
+        onSuccess: this.taskOnSuccess(task, agent, run, worktree, original.session_id),
+      };
+    }
+
+    const cwd = join(opts.agentsHome, agent.id);
+    mkdirSync(cwd, { recursive: true });
+    return {
+      job: {
+        runId: run.run_id,
+        agent,
+        channelId: run.channel_id,
+        triggerEventId: run.trigger_event_id,
+        prompt: continuation.note,
+        cwd,
+        sessionId: original.session_id,
+        resume: true,
+      },
+      onSuccess: (text) => {
+        const reply = opts.log.append({
+          company_id: opts.companyId,
+          stream: channelStream(run.channel_id),
+          type: "message.posted",
+          actor: {
+            kind: "agent",
+            id: agent.id,
+            session_id: original.session_id ?? undefined,
+            invocation_id: run.run_id,
+          },
+          payload: { body: text || "(empty reply)" },
+        });
+        return reply.id;
+      },
+    };
+  }
+
   private prepareChatJob(run: RunRow, agent: AgentConfig): PreparedJob | null {
     const { opts } = this;
     const cwd = join(opts.agentsHome, agent.id);
     mkdirSync(cwd, { recursive: true });
     writeFileSync(join(cwd, "CLAUDE.md"), agent.charter, "utf8");
+    if (opts.hookUrl !== undefined) {
+      writeHookSettings({ dir: cwd, hookUrl: opts.hookUrl, local: false });
+    }
 
     const prior = opts.db
       .prepare(
@@ -403,6 +539,9 @@ export class Orchestrator {
       this.fail(run.run_id, agent.id, "spawn_error", `worktree: ${String(error)}`);
       return null;
     }
+    if (opts.hookUrl !== undefined) {
+      writeHookSettings({ dir: worktree, hookUrl: opts.hookUrl, local: true });
+    }
     const branch = branchName(agent, task.task_num);
     const taskStream = `task:${task.task_id}`;
     const sessionId = randomUUID();
@@ -433,64 +572,85 @@ export class Orchestrator {
         allowedTools: taskAllowedTools(),
         maxWallMs: Math.max(agent.max_wall_ms, 20 * 60_000),
       },
-      onSuccess: (text) => {
-        const comment = opts.log.append({
-          company_id: opts.companyId,
-          stream: taskStream,
-          type: "message.posted",
-          actor: {
-            kind: "agent",
-            id: agent.id,
-            session_id: sessionId,
-            invocation_id: run.run_id,
-          },
-          payload: { body: text || "(no output)" },
-        });
-        const pr = extractPrUrl(text);
-        if (pr !== null) {
-          opts.log.append({
-            company_id: opts.companyId,
-            stream: taskStream,
-            type: "task.pr_opened",
-            actor: { kind: "agent", id: agent.id, invocation_id: run.run_id },
-            payload: {
-              task_id: task.task_id,
-              pr_number: pr.number,
-              pr_url: pr.url,
-              branch,
-            },
-          });
-          let oversized = false;
-          try {
-            const stat = diffStat(worktree);
-            oversized = stat.insertions + stat.deletions > 200;
-          } catch {
-            /* worktree gone — skip the advisory check */
-          }
-          if (oversized) {
-            opts.log.append({
-              company_id: opts.companyId,
-              stream: taskStream,
-              type: "message.posted",
-              actor: { kind: "system", id: "charterd" },
-              payload: {
-                body: "⚠ Diff exceeds the ~200-line guardrail. Review extra carefully or ask for a split.",
-              },
-            });
-          }
-        }
+      onSuccess: this.taskOnSuccess(task, agent, run, worktree, sessionId),
+    };
+  }
+
+  /** Shared task-run epilogue: journal the report, PR events, status. */
+  private taskOnSuccess(
+    task: TaskRow,
+    agent: AgentConfig,
+    run: RunRow,
+    worktree: string,
+    sessionId: string,
+  ): (text: string) => string {
+    const { opts } = this;
+    const taskStream = `task:${task.task_id}`;
+    const branch = branchName(agent, task.task_num);
+    return (text) => {
+      const comment = opts.log.append({
+        company_id: opts.companyId,
+        stream: taskStream,
+        type: "message.posted",
+        actor: {
+          kind: "agent",
+          id: agent.id,
+          session_id: sessionId,
+          invocation_id: run.run_id,
+        },
+        payload: { body: text || "(no output)" },
+      });
+      const pr = extractPrUrl(text);
+      if (pr !== null) {
         opts.log.append({
           company_id: opts.companyId,
           stream: taskStream,
-          type: "task.status_changed",
-          actor: { kind: "system", id: "charterd" },
+          type: "task.pr_opened",
+          actor: { kind: "agent", id: agent.id, invocation_id: run.run_id },
           payload: {
             task_id: task.task_id,
-            status: pr !== null ? "review" : "todo",
+            pr_number: pr.number,
+            pr_url: pr.url,
+            branch,
           },
         });
-        return comment.id;
-      },
+        let oversized = false;
+        try {
+          const stat = diffStat(worktree);
+          oversized = stat.insertions + stat.deletions > 200;
+        } catch {
+          /* worktree gone — skip the advisory check */
+        }
+        if (oversized) {
+          opts.log.append({
+            company_id: opts.companyId,
+            stream: taskStream,
+            type: "message.posted",
+            actor: { kind: "system", id: "charterd" },
+            payload: {
+              body: "⚠ Diff exceeds the ~200-line guardrail. Review extra carefully or ask for a split.",
+            },
+          });
+        }
+      }
+      const held = opts.db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM approvals
+            WHERE run_id = ? AND status = 'pending'`,
+        )
+        .get(run.run_id) as { n: number };
+      opts.log.append({
+        company_id: opts.companyId,
+        stream: taskStream,
+        type: "task.status_changed",
+        actor: { kind: "system", id: "charterd" },
+        payload: {
+          task_id: task.task_id,
+          // Held runs stay `doing` — they resume when the approval resolves.
+          status: pr !== null ? "review" : held.n > 0 ? "doing" : "todo",
+        },
+      });
+      return comment.id;
     };
   }
 

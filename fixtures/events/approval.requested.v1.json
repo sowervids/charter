@@ -1,0 +1,1 @@
+{ "type": "approval.requested", "payload": { "approval_id": "apr_01", "run_id": "run_01", "agent_id": "ops", "tool": "Bash", "input_summary": "git push origin agent/ops/task-2", "payload_hash": "0000000000000000000000000000000000000000000000000000000000000000", "rule": "Bash(git push*)", "expires_at": "2026-07-06T00:00:00.000Z" } }

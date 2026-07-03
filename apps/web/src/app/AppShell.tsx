@@ -1,10 +1,12 @@
 import { useEffect } from "react";
 import { useStore } from "../lib/store.js";
+import { ApprovalsView } from "./ApprovalsView.js";
 import { BoardView } from "./BoardView.js";
 import { ChannelView } from "./ChannelView.js";
 import { LogView } from "./LogView.js";
 import { Palette } from "./Palette.js";
 import { Rail } from "./Rail.js";
+import { TraceView } from "./TraceView.js";
 
 export function AppShell() {
   const { state } = useStore();
@@ -21,6 +23,8 @@ export function AppShell() {
           <ChannelView channelId={state.view.channelId} />
         )}
         {state.view.kind === "board" && <BoardView taskId={state.view.taskId} />}
+        {state.view.kind === "approvals" && <ApprovalsView />}
+        {state.view.kind === "trace" && <TraceView runId={state.view.runId} />}
         {state.view.kind === "log" && <LogView />}
       </main>
       <Palette />

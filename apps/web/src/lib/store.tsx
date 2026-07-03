@@ -19,6 +19,8 @@ import { connectEvents, type ConnectionStatus } from "./sse.js";
 export type View =
   | { kind: "channel"; channelId: string }
   | { kind: "board"; taskId?: string }
+  | { kind: "approvals" }
+  | { kind: "trace"; runId: string }
   | { kind: "log" }
   | { kind: "gallery" };
 
@@ -47,6 +49,7 @@ interface State {
   roster: RosterEntry[];
   tasks: TaskInfo[];
   tasksLoaded: boolean;
+  approvalsPending: number;
   /** taskId → its stream events (detail panel) */
   taskTimelines: Record<string, CommittedEvent[]>;
 }
@@ -72,7 +75,8 @@ type Action =
   | { t: "pending_resolve"; tempId: string }
   | { t: "pending_failed"; tempId: string }
   | { t: "tasks"; tasks: TaskInfo[] }
-  | { t: "task_timeline"; taskId: string; events: CommittedEvent[] };
+  | { t: "task_timeline"; taskId: string; events: CommittedEvent[] }
+  | { t: "approvals_pending"; count: number };
 
 function channelOf(stream: string): string | null {
   return stream.startsWith("channel:") ? stream.slice(8) : null;
@@ -100,6 +104,8 @@ function reducer(state: State, action: Action): State {
       };
     case "tasks":
       return { ...state, tasks: action.tasks, tasksLoaded: true };
+    case "approvals_pending":
+      return { ...state, approvalsPending: action.count };
     case "task_timeline":
       return {
         ...state,
@@ -240,6 +246,8 @@ function initialView(): View {
   const path = window.location.pathname;
   if (path === "/log") return { kind: "log" };
   if (path === "/dev/gallery") return { kind: "gallery" };
+  if (path === "/approvals") return { kind: "approvals" };
+  if (path.startsWith("/trace/")) return { kind: "trace", runId: path.slice(7) };
   if (path === "/board") return { kind: "board" };
   if (path.startsWith("/board/")) {
     return { kind: "board", taskId: path.slice(7) };
@@ -264,6 +272,7 @@ const initial: State = {
   roster: [],
   tasks: [],
   tasksLoaded: false,
+  approvalsPending: 0,
   taskTimelines: {},
 };
 
@@ -307,6 +316,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       .then((data) => {
         if (cancelled) return;
         dispatch({ t: "bootstrap", data });
+        void api
+          .approvals("pending")
+          .then(({ approvals }) =>
+            dispatch({ t: "approvals_pending", count: approvals.length }),
+          )
+          .catch(() => {});
         disconnect = connectEvents({
           // Replay from 0 on first connect: the whole record is the app state.
           after: 0,
@@ -318,6 +333,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               void api
                 .tasks()
                 .then(({ tasks }) => dispatch({ t: "tasks", tasks }))
+                .catch(() => {});
+            }
+            if (event.type.startsWith("approval.")) {
+              void api
+                .approvals("pending")
+                .then(({ approvals }) =>
+                  dispatch({ t: "approvals_pending", count: approvals.length }),
+                )
                 .catch(() => {});
             }
           },
@@ -340,9 +363,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             ? view.taskId !== undefined
               ? `/board/${view.taskId}`
               : "/board"
-            : view.kind === "log"
-              ? "/log"
-              : "/dev/gallery";
+            : view.kind === "approvals"
+              ? "/approvals"
+              : view.kind === "trace"
+                ? `/trace/${view.runId}`
+                : view.kind === "log"
+                  ? "/log"
+                  : "/dev/gallery";
       window.history.pushState(null, "", path);
       dispatch({ t: "view", view });
     };

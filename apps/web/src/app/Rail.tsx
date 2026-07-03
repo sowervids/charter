@@ -1,4 +1,4 @@
-import { Hash, Kanban, ScrollText, Search } from "lucide-react";
+import { Hash, Kanban, ScrollText, Search, ShieldCheck } from "lucide-react";
 import { useStore } from "../lib/store.js";
 
 export function Rail() {
@@ -52,6 +52,30 @@ export function Rail() {
           {state.tasks.filter((t) => t.status === "review").length > 0 && (
             <span className="tnum ml-auto rounded-sm bg-warn/20 px-1 font-mono text-[10px] text-warn">
               {state.tasks.filter((t) => t.status === "review").length}
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={() => navigate({ kind: "approvals" })}
+          aria-current={state.view.kind === "approvals" ? "page" : undefined}
+          className={`flex h-8 w-full items-center gap-2 rounded-sm px-2 text-left transition-colors duration-(--motion-fast) ${
+            state.view.kind === "approvals"
+              ? "bg-bg-3 text-text-1"
+              : "text-text-2 hover:bg-bg-2 hover:text-text-1"
+          }`}
+        >
+          <ShieldCheck
+            size={14}
+            strokeWidth={1.5}
+            className={
+              state.view.kind === "approvals" ? "text-accent" : "text-text-3"
+            }
+          />
+          <span className="text-[13px]">Approvals</span>
+          {state.approvalsPending > 0 && (
+            <span className="tnum ml-auto rounded-sm bg-accent px-1 font-mono text-[10px] font-medium text-accent-ink">
+              {state.approvalsPending}
             </span>
           )}
         </button>

@@ -11,3 +11,7 @@ export function newRunId(): string {
 export function newTaskId(): string {
   return `tsk_${ulid()}`;
 }
+
+export function newApprovalId(): string {
+  return `apr_${ulid()}`;
+}

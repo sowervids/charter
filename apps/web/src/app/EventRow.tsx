@@ -11,14 +11,16 @@ import type { CommittedEvent } from "@charter/schema";
 export function EventRow({
   event,
   onPromote,
+  onTrace,
 }: {
   event: CommittedEvent;
   onPromote?: (event: CommittedEvent) => void;
+  onTrace?: (runId: string) => void;
 }) {
   switch (event.type) {
     case "message.posted":
       return (
-        <Row event={event} onPromote={onPromote}>
+        <Row event={event} onPromote={onPromote} onTrace={onTrace}>
           <Body text={(event.payload as { body: string }).body} />
         </Row>
       );
@@ -79,6 +81,90 @@ export function EventRow({
         </SystemLine>
       );
     }
+    case "agent.run_step": {
+      const payload = event.payload as {
+        kind: string;
+        name?: string;
+        preview?: string;
+      };
+      return (
+        <div className="flex gap-2 px-8 py-0.5 font-mono text-[11px] leading-[17px]">
+          <span className="text-text-3">
+            {payload.kind === "tool_use" ? "→" : "·"}
+          </span>
+          <span className="text-info">{payload.name ?? payload.kind}</span>
+          {payload.preview && (
+            <span className="truncate text-text-2">{payload.preview}</span>
+          )}
+        </div>
+      );
+    }
+    case "agent.run_queued":
+      return <SystemLine event={event}>run queued</SystemLine>;
+    case "agent.run_started": {
+      const payload = event.payload as { model: string; resumed: boolean };
+      return (
+        <SystemLine event={event}>
+          run started · {payload.model}
+          {payload.resumed ? " · resumed session" : ""}
+        </SystemLine>
+      );
+    }
+    case "agent.run_completed": {
+      const payload = event.payload as {
+        num_turns: number;
+        duration_ms: number;
+        usage?: { cost_usd?: number };
+      };
+      return (
+        <SystemLine event={event}>
+          run completed · {payload.num_turns} turns ·{" "}
+          {(payload.duration_ms / 1000).toFixed(1)}s
+          {payload.usage?.cost_usd !== undefined
+            ? ` · $${payload.usage.cost_usd.toFixed(4)}`
+            : ""}
+        </SystemLine>
+      );
+    }
+    case "agent.run_failed": {
+      const payload = event.payload as { reason: string; detail?: string };
+      return (
+        <SystemLine event={event}>
+          <span className="text-danger">
+            run failed · {payload.reason.replace(/_/g, " ")}
+          </span>
+          {payload.detail ? ` — ${payload.detail.slice(0, 120)}` : ""}
+        </SystemLine>
+      );
+    }
+    case "agent.run_interrupted":
+      return <SystemLine event={event}>run interrupted — requeued</SystemLine>;
+    case "approval.requested": {
+      const payload = event.payload as { input_summary: string; rule: string };
+      return (
+        <SystemLine event={event}>
+          <span className="text-warn">held for approval</span> ·{" "}
+          {payload.input_summary.slice(0, 80)} · rule {payload.rule}
+        </SystemLine>
+      );
+    }
+    case "approval.resolved": {
+      const payload = event.payload as { decision: string; note?: string };
+      return (
+        <SystemLine event={event}>
+          <span className={payload.decision === "allow" ? "text-ok" : "text-danger"}>
+            {payload.decision === "allow" ? "approved" : "denied"} by {event.actor.id}
+          </span>
+          {payload.note ? ` — “${payload.note}”` : ""}
+        </SystemLine>
+      );
+    }
+    case "approval.consumed":
+      return (
+        <SystemLine event={event}>
+          approval consumed (single-use) — action executed
+        </SystemLine>
+      );
     case "channel.created": {
       const payload = event.payload as { name: string };
       return (
@@ -108,11 +194,13 @@ function Row({
   event,
   icon,
   onPromote,
+  onTrace,
   children,
 }: {
   event: CommittedEvent;
   icon?: React.ReactNode;
   onPromote?: (event: CommittedEvent) => void;
+  onTrace?: (runId: string) => void;
   children: React.ReactNode;
 }) {
   const isAgent = event.actor.kind === "agent";
@@ -139,15 +227,26 @@ function Row({
         >
           {event.created_at.slice(11, 16)}
         </time>
-        {onPromote && (
-          <button
-            type="button"
-            onClick={() => onPromote(event)}
-            className="ml-auto rounded-sm border border-line-1 px-1.5 font-mono text-[10px] text-text-3 opacity-0 transition-opacity duration-(--motion-fast) hover:border-line-2 hover:text-text-1 group-hover:opacity-100"
-          >
-            → task
-          </button>
-        )}
+        <span className="ml-auto flex gap-1">
+          {isAgent && event.actor.invocation_id && onTrace && (
+            <button
+              type="button"
+              onClick={() => onTrace(event.actor.invocation_id!)}
+              className="rounded-sm border border-line-1 px-1.5 font-mono text-[10px] text-text-3 opacity-0 transition-opacity duration-(--motion-fast) hover:border-line-2 hover:text-text-1 group-hover:opacity-100"
+            >
+              why?
+            </button>
+          )}
+          {onPromote && (
+            <button
+              type="button"
+              onClick={() => onPromote(event)}
+              className="rounded-sm border border-line-1 px-1.5 font-mono text-[10px] text-text-3 opacity-0 transition-opacity duration-(--motion-fast) hover:border-line-2 hover:text-text-1 group-hover:opacity-100"
+            >
+              → task
+            </button>
+          )}
+        </span>
       </div>
       <div className="text-[14px] leading-[21px] text-text-1">{children}</div>
     </div>
