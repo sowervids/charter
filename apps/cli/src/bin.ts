@@ -215,6 +215,67 @@ program
   });
 
 program
+  .command("doctor")
+  .description("verify the substrate: runtime, db, chain, daemon")
+  .action(async () => {
+    const { execFileSync } = await import("node:child_process");
+    const { statSync } = await import("node:fs");
+    const results: Array<[string, boolean, string]> = [];
+    const check = (name: string, ok: boolean, detail: string) =>
+      results.push([name, ok, detail]);
+
+    const major = Number(process.versions.node.split(".")[0]);
+    check("node ≥ 22", major >= 22, `v${process.versions.node}`);
+    try {
+      const v = execFileSync("claude", ["--version"], { encoding: "utf8" }).trim();
+      check("claude CLI", true, v);
+    } catch {
+      check("claude CLI", false, "not found on PATH — agents cannot run");
+    }
+    try {
+      const root = requireRoot();
+      const ctx = openCharter(root);
+      const result = verify(ctx.db);
+      check(
+        "hash chain",
+        result.ok,
+        result.ok
+          ? `${result.checked} events verified`
+          : `BROKEN at seq ${result.firstBadSeq}`,
+      );
+      const wal = ctx.db.pragma("journal_mode", { simple: true });
+      check("WAL mode", wal === "wal", String(wal));
+      try {
+        const mode = statSync(join(root, "var", "api_token")).mode & 0o777;
+        check("token perms", mode === 0o600, `0${mode.toString(8)}`);
+      } catch {
+        check("token perms", false, "var/api_token missing (start charterd once)");
+      }
+      try {
+        const { readFileSync } = await import("node:fs");
+        const token = readFileSync(join(root, "var", "api_token"), "utf8").trim();
+        const res = await fetch("http://127.0.0.1:4614/api/health", {
+          headers: { authorization: `Bearer ${token}` },
+        });
+        check("charterd", res.ok, res.ok ? "listening on :4614" : `status ${res.status}`);
+      } catch {
+        check("charterd", false, "not running (fine if intentional)");
+      }
+    } catch (error) {
+      check("company", false, String(error));
+    }
+
+    let failed = 0;
+    for (const [name, ok, detail] of results) {
+      if (!ok) failed += 1;
+      console.log(
+        `${ok ? styleText("green", " ok ") : styleText("red", "FAIL")} ${name.padEnd(12)} ${styleText("dim", detail)}`,
+      );
+    }
+    process.exit(failed > 0 ? 1 : 0);
+  });
+
+program
   .command("verify")
   .description("verify the hash chain")
   .action(() => {
