@@ -1,0 +1,8 @@
+{
+  "type": "channel.created",
+  "payload": {
+    "channel_id": "devlog",
+    "name": "devlog",
+    "topic": "The development journal of Charter itself."
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "type": "message.posted",
+  "payload": {
+    "body": "Frozen fixture: the first message shape. Markdown body, nothing else — threading arrives via refs, never payload changes."
+  }
+}

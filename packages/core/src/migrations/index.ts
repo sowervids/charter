@@ -61,4 +61,19 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    version: 3,
+    name: "channels_projection",
+    sql: `
+      CREATE TABLE channels (
+        channel_id TEXT NOT NULL,
+        company_id TEXT NOT NULL,
+        name       TEXT NOT NULL,
+        topic      TEXT,
+        created_at TEXT NOT NULL,
+        event_id   TEXT NOT NULL,
+        PRIMARY KEY (company_id, channel_id)
+      );
+    `,
+  },
 ];

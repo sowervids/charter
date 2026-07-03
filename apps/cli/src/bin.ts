@@ -43,6 +43,27 @@ program
       });
       console.log(formatEvent(event));
     }
+    const defaults: Array<{ id: string; name: string; topic: string }> = [
+      { id: "general", name: "general", topic: "Company-wide conversation." },
+      { id: "devlog", name: "devlog", topic: "The development journal of Charter itself." },
+      { id: "founder-log", name: "founder-log", topic: "The founder's working notes." },
+    ];
+    for (const ch of defaults) {
+      const exists = ctx.db
+        .prepare(
+          "SELECT 1 FROM channels WHERE company_id = ? AND channel_id = ?",
+        )
+        .get(ctx.company.id, ch.id);
+      if (exists) continue;
+      const event = ctx.log.append({
+        company_id: ctx.company.id,
+        stream: channelStream(ch.id),
+        type: "channel.created",
+        actor: { kind: "human", id: "founder" },
+        payload: { channel_id: ch.id, name: ch.name, topic: ch.topic },
+      });
+      console.log(formatEvent(event));
+    }
     console.log(
       `${styleText("bold", ctx.company.name)} (${ctx.company.id}) — ` +
         `${ctx.log.lastSeq() || existing} event(s) in var/charter.db`,

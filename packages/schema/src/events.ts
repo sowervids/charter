@@ -45,6 +45,19 @@ export const EVENT_PAYLOADS = {
     note: z.string().min(1),
     tags: z.array(z.string().min(1)).optional(),
   }),
+  "channel.created": z.object({
+    /** URL-safe channel id, also the stream suffix: channel:<id> */
+    channel_id: z
+      .string()
+      .min(1)
+      .max(64)
+      .regex(/^[a-z0-9][a-z0-9-]*$/, "lowercase letters, digits, hyphens"),
+    name: z.string().min(1).max(80),
+    topic: z.string().max(500).optional(),
+  }),
+  "message.posted": z.object({
+    body: z.string().min(1).max(20_000),
+  }),
 } as const;
 
 export type EventType = keyof typeof EVENT_PAYLOADS;
