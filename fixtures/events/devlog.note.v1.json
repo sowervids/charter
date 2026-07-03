@@ -1,0 +1,7 @@
+{
+  "type": "devlog.note",
+  "payload": {
+    "note": "Frozen fixture: the first devlog note shape. If this stops parsing, history is unreadable — fix the upcaster, never the fixture.",
+    "tags": ["fixture"]
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "type": "company.created",
+  "payload": {
+    "name": "Charter"
+  }
+}
