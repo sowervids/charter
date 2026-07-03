@@ -31,6 +31,8 @@ Treasury (`/treasury` in the UI) is a **mirror** — Charter never holds or move
 
 Agents run under deny-by-default policies (`company/agents/*/policy.json`), enforced server-side via the PreToolUse hook. They cannot merge PRs, push to main, or move money — those need a human. Pause everything: kill charterd (`launchctl unload ~/Library/LaunchAgents/com.charter.charterd.plist` or kill the pid in `var/charterd.pid`).
 
+**launchd caveat (macOS TCC):** the LaunchAgent hangs on first file access until `node` is granted Full Disk Access once (System Settings → Privacy & Security), because the repo lives under `~/Documents`. Until that grant, run the daemon manually: `node apps/server/dist/bin.js`.
+
 ## Decisions of record
 
 The event log IS the journal: `pnpm charter tail -n 200 --stream channel:devlog`, or the Log view in the UI. Architecture decisions are in `docs/adr/`. The build plan that produced all of this: `~/.claude/plans/modular-shimmying-fiddle.md`.
