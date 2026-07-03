@@ -159,6 +159,52 @@ program
   });
 
 program
+  .command("stats")
+  .description("print event log statistics")
+  .action(() => {
+    const ctx = openCharter(requireRoot());
+
+    const total = (
+      ctx.db
+        .prepare("SELECT COUNT(*) AS n FROM events WHERE company_id = ?")
+        .get(ctx.company.id) as { n: number }
+    ).n;
+
+    const byType = ctx.db
+      .prepare(
+        "SELECT type, COUNT(*) AS n FROM events WHERE company_id = ? GROUP BY type ORDER BY n DESC",
+      )
+      .all(ctx.company.id) as Array<{ type: string; n: number }>;
+
+    const byActor = ctx.db
+      .prepare(
+        "SELECT actor_kind, COUNT(*) AS n FROM events WHERE company_id = ? GROUP BY actor_kind ORDER BY n DESC",
+      )
+      .all(ctx.company.id) as Array<{ actor_kind: string; n: number }>;
+
+    console.log(
+      styleText("bold", "Total events: ") + styleText("cyan", String(total)),
+    );
+
+    console.log();
+    console.log(styleText("dim", "By event type:"));
+    const typeWidth = Math.max(10, ...byType.map((r) => r.type.length));
+    for (const row of byType) {
+      console.log(
+        `  ${styleText("cyan", row.type.padEnd(typeWidth))}  ${String(row.n).padStart(6)}`,
+      );
+    }
+
+    console.log();
+    console.log(styleText("dim", "By actor kind:"));
+    for (const row of byActor) {
+      console.log(
+        `  ${styleText("yellow", row.actor_kind.padEnd(12))}  ${String(row.n).padStart(6)}`,
+      );
+    }
+  });
+
+program
   .command("rebuild")
   .description("rebuild projections from the event log")
   .argument("[name]", "projection name (default: all)")
