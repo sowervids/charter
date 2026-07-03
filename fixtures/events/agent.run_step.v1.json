@@ -1,0 +1,4 @@
+{
+  "type": "agent.run_step",
+  "payload": { "run_id": "run_01", "kind": "text", "preview": "Reading the thread…" }
+}

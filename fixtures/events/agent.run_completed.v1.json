@@ -1,0 +1,4 @@
+{
+  "type": "agent.run_completed",
+  "payload": { "run_id": "run_01", "num_turns": 1, "duration_ms": 8200, "reply_event_id": "evt_02", "usage": { "input_tokens": 1200, "output_tokens": 240, "cost_usd": 0.0072 } }
+}

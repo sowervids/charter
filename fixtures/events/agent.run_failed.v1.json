@@ -1,0 +1,4 @@
+{
+  "type": "agent.run_failed",
+  "payload": { "run_id": "run_01", "reason": "rate_limit", "detail": "429 after retry" }
+}

@@ -1,0 +1,4 @@
+{
+  "type": "agent.run_queued",
+  "payload": { "run_id": "run_01", "agent_id": "scout", "channel_id": "general", "trigger_event_id": "evt_01", "priority": "p0" }
+}

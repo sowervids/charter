@@ -1,5 +1,5 @@
 import type { CommittedEvent } from "@charter/schema";
-import { DayDivider, EventRow, PendingRow } from "./EventRow.js";
+import { DayDivider, EventRow, PendingRow, WorkingRow } from "./EventRow.js";
 
 /**
  * /dev/gallery — every component in every state, one page (the plan's
@@ -80,6 +80,17 @@ const SECTIONS: Array<{ title: string; body: React.ReactNode }> = [
   {
     title: "DayDivider",
     body: <DayDivider date="Thu, Jul 3, 2026" />,
+  },
+  {
+    title: "WorkingRow · queued / running / failed / interrupted",
+    body: (
+      <>
+        <WorkingRow agentId="scout" status="queued" startedAt={new Date().toISOString()} />
+        <WorkingRow agentId="scout" status="running" startedAt={new Date(Date.now() - 23_000).toISOString()} />
+        <WorkingRow agentId="scout" status="failed" startedAt="2026-07-03T14:30:00Z" reason="rate_limit" />
+        <WorkingRow agentId="scout" status="interrupted" startedAt="2026-07-03T14:30:00Z" />
+      </>
+    ),
   },
   {
     title: "PendingRow · optimistic + failed",

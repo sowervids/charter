@@ -35,6 +35,18 @@ interface State {
   loaded: Record<string, boolean>;
   pending: PendingMessage[];
   lastSeq: number;
+  /** runId → live agent run state (from agent.run_* events) */
+  runs: Record<string, AgentRunState>;
+}
+
+export interface AgentRunState {
+  runId: string;
+  agentId: string;
+  channelId: string;
+  status: "queued" | "running" | "completed" | "failed" | "interrupted";
+  reason?: string;
+  startedAt: string;
+  endedAt?: string;
 }
 
 type Action =
@@ -94,6 +106,45 @@ function reducer(state: State, action: Action): State {
         ...state,
         lastSeq: Math.max(state.lastSeq, action.event.seq),
       };
+      if (action.event.type.startsWith("agent.run_")) {
+        const p = action.event.payload as {
+          run_id: string;
+          agent_id?: string;
+          channel_id?: string;
+          reason?: string;
+        };
+        const prior = state.runs[p.run_id];
+        const status =
+          action.event.type === "agent.run_queued"
+            ? ("queued" as const)
+            : action.event.type === "agent.run_started"
+              ? ("running" as const)
+              : action.event.type === "agent.run_completed"
+                ? ("completed" as const)
+                : action.event.type === "agent.run_failed"
+                  ? ("failed" as const)
+                  : action.event.type === "agent.run_interrupted"
+                    ? ("interrupted" as const)
+                    : null;
+        if (status !== null) {
+          next.runs = {
+            ...state.runs,
+            [p.run_id]: {
+              runId: p.run_id,
+              agentId: p.agent_id ?? prior?.agentId ?? "agent",
+              channelId: p.channel_id ?? prior?.channelId ?? "",
+              status,
+              ...(p.reason !== undefined ? { reason: p.reason } : {}),
+              startedAt: prior?.startedAt ?? action.event.created_at,
+              ...(status === "completed" ||
+              status === "failed" ||
+              status === "interrupted"
+                ? { endedAt: action.event.created_at }
+                : {}),
+            },
+          };
+        }
+      }
       if (
         action.event.type === "channel.created" &&
         !state.channels.some(
@@ -165,6 +216,7 @@ const initial: State = {
   loaded: {},
   pending: [],
   lastSeq: 0,
+  runs: {},
 };
 
 export interface Store {

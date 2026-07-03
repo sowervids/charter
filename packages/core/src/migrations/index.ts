@@ -76,4 +76,32 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    version: 4,
+    name: "agent_runs_projection",
+    sql: `
+      CREATE TABLE agent_runs (
+        run_id           TEXT PRIMARY KEY,
+        company_id       TEXT NOT NULL,
+        agent_id         TEXT NOT NULL,
+        channel_id       TEXT NOT NULL,
+        trigger_event_id TEXT NOT NULL,
+        priority         TEXT NOT NULL,
+        status           TEXT NOT NULL CHECK (status IN
+          ('queued','running','completed','failed','interrupted')),
+        session_id       TEXT,
+        model            TEXT,
+        reason           TEXT,
+        duration_ms      INTEGER,
+        num_turns        INTEGER,
+        input_tokens     INTEGER,
+        output_tokens    INTEGER,
+        cost_usd         REAL,
+        queued_at        TEXT NOT NULL,
+        updated_at       TEXT NOT NULL
+      );
+      CREATE INDEX ix_agent_runs_status ON agent_runs (company_id, status);
+      CREATE INDEX ix_agent_runs_agent  ON agent_runs (company_id, agent_id, queued_at);
+    `,
+  },
 ];

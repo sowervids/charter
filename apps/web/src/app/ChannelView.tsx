@@ -3,7 +3,7 @@ import { Hash } from "lucide-react";
 import type { CommittedEvent } from "@charter/schema";
 import { useStore } from "../lib/store.js";
 import { Composer } from "./Composer.js";
-import { DayDivider, EventRow, PendingRow } from "./EventRow.js";
+import { DayDivider, EventRow, PendingRow, WorkingRow } from "./EventRow.js";
 
 export function ChannelView({ channelId }: { channelId: string }) {
   const { state, ensureTimeline } = useStore();
@@ -57,11 +57,36 @@ export function ChannelView({ channelId }: { channelId: string }) {
         {pending.map((p) => (
           <PendingRow key={p.tempId} body={p.body} failed={p.failed} />
         ))}
+        {Object.values(state.runs)
+          .filter(
+            (run) =>
+              run.channelId === channelId &&
+              (run.status === "queued" ||
+                run.status === "running" ||
+                ((run.status === "failed" || run.status === "interrupted") &&
+                  recent(run.endedAt))),
+          )
+          .map((run) => (
+            <WorkingRow
+              key={run.runId}
+              agentId={run.agentId}
+              status={
+                run.status as "queued" | "running" | "failed" | "interrupted"
+              }
+              startedAt={run.startedAt}
+              reason={run.reason}
+            />
+          ))}
       </div>
 
       <Composer channelId={channelId} />
     </>
   );
+}
+
+function recent(endedAt: string | undefined): boolean {
+  if (endedAt === undefined) return false;
+  return Date.now() - Date.parse(endedAt) < 5 * 60_000;
 }
 
 function groupByDay(

@@ -1,0 +1,4 @@
+{
+  "type": "agent.run_started",
+  "payload": { "run_id": "run_01", "agent_id": "scout", "channel_id": "general", "session_id": "3f1c9f2e-0000-4000-8000-000000000000", "model": "sonnet", "resumed": false }
+}

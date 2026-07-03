@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { NotebookPen } from "lucide-react";
 import type { CommittedEvent } from "@charter/schema";
 
@@ -133,6 +134,66 @@ export function DayDivider({ date }: { date: string }) {
       <span className="h-px flex-1 bg-line-1" />
     </div>
   );
+}
+
+/** WorkCard-lite: truthful waiting state — a counting timer, never a fake
+ *  typing indicator. Transforms into the streamed message on completion. */
+export function WorkingRow({
+  agentId,
+  status,
+  startedAt,
+  reason,
+}: {
+  agentId: string;
+  status: "queued" | "running" | "failed" | "interrupted";
+  startedAt: string;
+  reason?: string;
+}) {
+  const [elapsed, setElapsed] = useState(() => sinceSeconds(startedAt));
+  useEffect(() => {
+    if (status !== "running" && status !== "queued") return;
+    const timer = setInterval(() => setElapsed(sinceSeconds(startedAt)), 1000);
+    return () => clearInterval(timer);
+  }, [startedAt, status]);
+
+  if (status === "failed" || status === "interrupted") {
+    return (
+      <div className="border-l-2 border-danger px-6 py-1.5">
+        <span className="font-mono text-[11px] font-medium uppercase tracking-[0.06em] text-danger">
+          {agentId}
+        </span>
+        <span className="ml-2 text-[12px] text-text-3">
+          {status === "failed"
+            ? `run failed${reason ? ` — ${reason.replace(/_/g, " ")}` : ""}`
+            : "run interrupted — requeued"}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="border-l-2 border-agent-1 px-6 py-1.5">
+      <div className="flex items-baseline gap-2">
+        <span
+          className="inline-block h-2 w-2 self-center rounded-full bg-agent-1"
+          style={{ animation: "presence-breathe 2s ease-in-out infinite" }}
+        />
+        <span className="font-mono text-[11px] font-medium uppercase tracking-[0.06em] text-agent-1">
+          {agentId}
+        </span>
+        <span className="text-[12px] text-text-3">
+          {status === "queued" ? "queued" : "working"}
+        </span>
+        <span className="tnum font-mono text-[11px] text-text-3">
+          {elapsed}s
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function sinceSeconds(iso: string): number {
+  return Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000));
 }
 
 export function PendingRow({ body, failed }: { body: string; failed?: boolean }) {

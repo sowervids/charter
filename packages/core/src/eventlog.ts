@@ -169,6 +169,25 @@ export class EventLog {
     return rows.map(rowToEvent);
   }
 
+  getById(id: string): CommittedEvent | null {
+    const row = this.db
+      .prepare("SELECT * FROM events WHERE id = ?")
+      .get(id) as EventRow | undefined;
+    return row === undefined ? null : rowToEvent(row);
+  }
+
+  /** Last N events of a stream, ascending. */
+  tail(options: { stream: string; companyId: string; limit: number }): CommittedEvent[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM events
+          WHERE company_id = ? AND stream = ?
+          ORDER BY seq DESC LIMIT ?`,
+      )
+      .all(options.companyId, options.stream, options.limit) as EventRow[];
+    return rows.reverse().map(rowToEvent);
+  }
+
   lastSeq(): number {
     const row = this.db
       .prepare("SELECT COALESCE(MAX(seq), 0) AS seq FROM events")

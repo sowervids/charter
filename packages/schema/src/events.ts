@@ -58,6 +58,50 @@ export const EVENT_PAYLOADS = {
   "message.posted": z.object({
     body: z.string().min(1).max(20_000),
   }),
+
+  /** ---- Agent run journal (stream: agent:<id>) ---- */
+  "agent.run_queued": z.object({
+    run_id: z.string().min(1),
+    agent_id: z.string().min(1),
+    channel_id: z.string().min(1),
+    trigger_event_id: z.string().min(1),
+    priority: z.enum(["p0", "p1", "p2"]),
+  }),
+  "agent.run_started": z.object({
+    run_id: z.string().min(1),
+    agent_id: z.string().min(1),
+    channel_id: z.string().min(1),
+    session_id: z.string().min(1),
+    model: z.string().min(1),
+    resumed: z.boolean(),
+  }),
+  "agent.run_step": z.object({
+    run_id: z.string().min(1),
+    kind: z.enum(["text", "tool_use", "tool_result"]),
+    name: z.string().optional(),
+    preview: z.string().max(2000).optional(),
+  }),
+  "agent.run_completed": z.object({
+    run_id: z.string().min(1),
+    num_turns: z.number().int().nonnegative(),
+    duration_ms: z.number().int().nonnegative(),
+    reply_event_id: z.string().optional(),
+    usage: z
+      .object({
+        input_tokens: z.number().int().nonnegative().optional(),
+        output_tokens: z.number().int().nonnegative().optional(),
+        cost_usd: z.number().nonnegative().optional(),
+      })
+      .optional(),
+  }),
+  "agent.run_failed": z.object({
+    run_id: z.string().min(1),
+    reason: z.enum(["rate_limit", "timeout", "spawn_error", "runtime_error"]),
+    detail: z.string().max(2000).optional(),
+  }),
+  "agent.run_interrupted": z.object({
+    run_id: z.string().min(1),
+  }),
 } as const;
 
 export type EventType = keyof typeof EVENT_PAYLOADS;

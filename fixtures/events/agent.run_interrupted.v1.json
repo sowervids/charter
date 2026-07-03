@@ -1,0 +1,4 @@
+{
+  "type": "agent.run_interrupted",
+  "payload": { "run_id": "run_01" }
+}

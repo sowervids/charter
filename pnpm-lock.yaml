@@ -47,6 +47,9 @@ importers:
 
   apps/server:
     dependencies:
+      '@charter/agents':
+        specifier: workspace:*
+        version: link:../../packages/agents
       '@charter/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -109,6 +112,19 @@ importers:
       vite:
         specifier: ^8.1.3
         version: 8.1.3(@types/node@26.1.0)(jiti@2.7.0)
+      vitest:
+        specifier: ^4.1.9
+        version: 4.1.9(@types/node@26.1.0)(vite@8.1.3(@types/node@26.1.0)(jiti@2.7.0))
+
+  packages/agents:
+    dependencies:
+      '@charter/core':
+        specifier: workspace:*
+        version: link:../core
+      '@charter/schema':
+        specifier: workspace:*
+        version: link:../schema
+    devDependencies:
       vitest:
         specifier: ^4.1.9
         version: 4.1.9(@types/node@26.1.0)(vite@8.1.3(@types/node@26.1.0)(jiti@2.7.0))

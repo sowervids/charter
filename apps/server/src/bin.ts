@@ -40,3 +40,30 @@ console.log(
   `  ${styleText("cyan", `http://127.0.0.1:${PORT}/?token=${ctx.token}`)}`,
 );
 console.log(styleText("dim", `  ${ctx.log.lastSeq()} events in the log`));
+
+// The agent orchestrator lives inside charterd: mentions trigger runs,
+// runs journal to the same log the UI streams from.
+if (process.env["CHARTER_AGENTS"] !== "0") {
+  const { ClaudeCliRuntime, Orchestrator, loadRegistry } = await import(
+    "@charter/agents"
+  );
+  const registry = loadRegistry(root);
+  if (registry.size > 0) {
+    const orchestrator = new Orchestrator({
+      db: ctx.db,
+      log: ctx.log,
+      companyId: ctx.company.id,
+      companyName: ctx.company.name,
+      registry,
+      runtime: new ClaudeCliRuntime(),
+      agentsHome: join(root, "agents-home"),
+    });
+    orchestrator.start();
+    console.log(
+      styleText(
+        "dim",
+        `  agents on duty: ${[...registry.keys()].map((id) => `@${id}`).join(", ")}`,
+      ),
+    );
+  }
+}

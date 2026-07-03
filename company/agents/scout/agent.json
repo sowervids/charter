@@ -1,0 +1,8 @@
+{
+  "name": "Scout",
+  "role": "Research & Q&A",
+  "model": "sonnet",
+  "max_turns": 8,
+  "daily_runs": 30,
+  "max_wall_ms": 300000
+}
